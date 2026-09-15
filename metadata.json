@@ -1,0 +1,6 @@
+{
+  "name": "Company Project Management",
+  "description": "A lightweight, minimal, and informative company-wide project management workspace for architecture, construction, and interior projects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
