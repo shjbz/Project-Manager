@@ -726,4 +726,39 @@ export const api = {
   async restoreBackup(data: any): Promise<{ success: boolean; message: string }> {
     return this.importDatabase(data);
   },
+
+  async getDbStatus(): Promise<{
+    engine: 'mongodb' | 'file' | 'browser_local';
+    uriConfigured: boolean;
+    connected: boolean;
+    databaseName: string | null;
+    error: string | null;
+    whitelistHint?: string;
+  }> {
+    if (isStaticMode) {
+      return {
+        engine: 'browser_local',
+        uriConfigured: false,
+        connected: true,
+        databaseName: 'browser_localStorage',
+        error: null,
+      };
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/db/status`);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && !contentType.includes('text/html')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      engine: 'file',
+      uriConfigured: false,
+      connected: true,
+      databaseName: 'local_file_db',
+      error: null,
+    };
+  },
 };

@@ -63,6 +63,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [resetting, setResetting] = useState(false);
 
+  // Database engine & MongoDB status
+  const [dbStatus, setDbStatus] = useState<{
+    engine: 'mongodb' | 'file' | 'browser_local';
+    uriConfigured: boolean;
+    connected: boolean;
+    databaseName: string | null;
+    error: string | null;
+    whitelistHint?: string;
+  } | null>(null);
+  const [dbLoading, setDbLoading] = useState(false);
+
+  const fetchDbStatus = async () => {
+    setDbLoading(true);
+    try {
+      const status = await api.getDbStatus();
+      setDbStatus(status);
+    } catch {
+      // ignore
+    } finally {
+      setDbLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDbStatus();
+  }, []);
+
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -555,6 +582,119 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {importing ? 'Processing backup file...' : 'Click or Drag & Drop JSON backup file here'}
           </div>
           <div className="text-[11px] text-zinc-400 mt-1">Accepts standard .json archives</div>
+        </div>
+      </div>
+
+      {/* Database Engine & MongoDB Storage Info */}
+      <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              dbStatus?.connected && dbStatus?.engine === 'mongodb'
+                ? 'bg-emerald-100 text-emerald-700'
+                : dbStatus?.uriConfigured && !dbStatus?.connected
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-zinc-100 text-zinc-800'
+            }`}>
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-zinc-900">Database Engine & Storage</h2>
+                {dbStatus && (
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                    dbStatus.connected && dbStatus.engine === 'mongodb'
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : dbStatus.uriConfigured && !dbStatus.connected
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-zinc-100 text-zinc-700 border border-zinc-200'
+                  }`}>
+                    {dbStatus.connected && dbStatus.engine === 'mongodb'
+                      ? 'MongoDB Atlas Connected'
+                      : dbStatus.uriConfigured && !dbStatus.connected
+                      ? 'MongoDB URI Configured (Connecting...)'
+                      : dbStatus.engine === 'browser_local'
+                      ? 'Browser Storage'
+                      : 'Local File Engine'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-zinc-500">
+                Persistence configuration for all project, client, task, staff, and company records.
+              </p>
+            </div>
+          </div>
+          <button
+            id="settings-refresh-db-btn"
+            onClick={fetchDbStatus}
+            disabled={dbLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold rounded-lg border border-zinc-300 transition cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${dbLoading ? 'animate-spin' : ''}`} />
+            <span>{dbLoading ? 'Checking...' : 'Check Connection'}</span>
+          </button>
+        </div>
+
+        {dbStatus?.connected && dbStatus?.engine === 'mongodb' && (
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs space-y-1.5 text-emerald-900">
+            <div className="font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              Connected to MongoDB database: <span className="font-mono font-bold">{dbStatus.databaseName || 'falcon_db'}</span>
+            </div>
+            <p className="text-emerald-800 text-[11px] leading-relaxed">
+              All projects, clients, tasks, team members, activities, and settings are saved and updated live in your MongoDB cluster.
+            </p>
+          </div>
+        )}
+
+        {dbStatus?.uriConfigured && !dbStatus?.connected && (
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-2 text-amber-900">
+            <div className="font-semibold flex items-center gap-1.5 text-amber-900">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              MongoDB Atlas connection pending or requires IP whitelisting
+            </div>
+            {dbStatus.error && (
+              <p className="font-mono text-[11px] bg-amber-100/70 p-2 rounded text-amber-950 break-all">
+                {dbStatus.error}
+              </p>
+            )}
+            <div className="text-[11px] leading-relaxed space-y-1 text-amber-800">
+              <p className="font-semibold">Troubleshooting MongoDB Atlas:</p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                <li>Go to <strong>MongoDB Atlas</strong> &rarr; <strong>Network Access</strong> &rarr; <strong>IP Access List</strong>.</li>
+                <li>Add your server IP: <span className="font-mono font-bold bg-amber-100 px-1 py-0.5 rounded text-amber-900">82.180.143.163</span> (or temporarily allow <span className="font-mono">0.0.0.0/0</span>).</li>
+                <li>Ensure your MongoDB Database User has <strong>readWriteAnyDatabase</strong> or read/write privileges.</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+        {!dbStatus?.uriConfigured && dbStatus?.engine !== 'browser_local' && (
+          <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs space-y-1.5 text-zinc-700">
+            <p className="font-semibold text-zinc-900">Current Storage: Server Local Database (`data/db.json`)</p>
+            <p className="text-zinc-600 text-[11px] leading-relaxed">
+              To store all company records directly in <strong>MongoDB Atlas</strong>, set the <span className="font-mono font-semibold text-zinc-900">MONGODB_URI</span> environment variable in your server configuration or hosting panel (e.g. <span className="font-mono text-zinc-800">mongodb+srv://user:pass@cluster0.mongodb.net/falcon_db</span>). The server will automatically connect and sync all collections!
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+          <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-100 text-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Collections</div>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5">7 Collections</div>
+          </div>
+          <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-100 text-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Projects & Tasks</div>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5">Auto-Synced</div>
+          </div>
+          <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-100 text-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Data Backups</div>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5">JSON & Mongo</div>
+          </div>
+          <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-100 text-center">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wide">Whitelisted IP</div>
+            <div className="text-xs font-mono font-bold text-zinc-800 mt-0.5">82.180.143.163</div>
+          </div>
         </div>
       </div>
 

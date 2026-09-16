@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { mongo } from './mongo.js';
 import type {
   CompanySettings,
   TeamMember,
@@ -539,8 +540,41 @@ export class Database {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   }
 
+  private mongoSyncTimer: NodeJS.Timeout | null = null;
+
+  public async initMongo(): Promise<void> {
+    try {
+      const ok = await mongo.initConnection();
+      if (ok) {
+        const mongoData = await mongo.loadAll();
+        if (mongoData && mongoData.settings) {
+          console.log('[MongoDB] Loaded existing data from MongoDB Atlas');
+          this.data = mongoData;
+          this.saveDataDirect(this.data);
+        } else {
+          console.log('[MongoDB] Initializing MongoDB collections with workspace data...');
+          await mongo.seedAll(this.data);
+        }
+      }
+    } catch (err) {
+      console.error('[MongoDB] initMongo error:', err);
+    }
+  }
+
+  private scheduleMongoSync() {
+    if (this.mongoSyncTimer) {
+      clearTimeout(this.mongoSyncTimer);
+    }
+    this.mongoSyncTimer = setTimeout(() => {
+      mongo.seedAll(this.data).catch((err) => {
+        console.error('[MongoDB] Background sync error:', err);
+      });
+    }, 150);
+  }
+
   public save() {
     this.saveDataDirect(this.data);
+    this.scheduleMongoSync();
   }
 
   public getRaw(): DatabaseSchema {

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.js';
+import { mongo } from './server/mongo.js';
 
 interface SessionRecord {
   createdAt: number;
@@ -86,6 +87,19 @@ async function startServer() {
       return;
     }
     next();
+  });
+
+  // Initialize MongoDB Atlas connection & synchronization
+  await db.initMongo();
+
+  // Database Connection Health & Status Endpoint
+  app.get('/api/db/status', (_req, res) => {
+    const status = mongo.getStatus();
+    res.json({
+      engine: status.connected ? 'mongodb' : 'file',
+      ...status,
+      whitelistHint: '82.180.143.163',
+    });
   });
 
   // Public company identity (for login gate branding and title)
