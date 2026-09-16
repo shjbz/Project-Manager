@@ -7,13 +7,15 @@ import {
   Settings,
   Plus,
   CalendarCheck,
-  Search,
+  CheckSquare,
+  History,
+  Archive,
   Building2,
   LogOut,
 } from 'lucide-react';
 import type { CompanySettings } from '../types';
 
-export type NavTab = 'dashboard' | 'projects' | 'clients' | 'team' | 'settings';
+export type NavTab = 'dashboard' | 'projects' | 'archive' | 'clients' | 'team' | 'settings';
 
 interface NavigationProps {
   currentTab?: NavTab;
@@ -23,10 +25,12 @@ interface NavigationProps {
   company?: Partial<CompanySettings> | null;
   onOpenNewProject?: () => void;
   onOpenNewFollowUp?: () => void;
-  onOpenSearch?: () => void;
+  onOpenNewTask?: () => void;
+  onOpenNewUpdate?: () => void;
   onLogout?: () => void;
   urgentCount?: number;
   overdueCount?: number;
+  archivedCount?: number;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -37,10 +41,12 @@ export const Navigation: React.FC<NavigationProps> = ({
   company,
   onOpenNewProject,
   onOpenNewFollowUp,
-  onOpenSearch,
+  onOpenNewTask,
+  onOpenNewUpdate,
   onLogout,
   urgentCount = 0,
   overdueCount = 0,
+  archivedCount = 0,
 }) => {
   const activeTab = currentNav || currentTab || 'dashboard';
 
@@ -56,6 +62,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Projects',
       icon: <FolderKanban className="w-4 h-4" />,
       count: overdueCount > 0 ? overdueCount : undefined,
+    },
+    {
+      id: 'archive',
+      label: 'Project Archive',
+      icon: <Archive className="w-4 h-4" />,
+      count: archivedCount > 0 ? archivedCount : undefined,
     },
     { id: 'clients', label: 'Clients', icon: <Building className="w-4 h-4" /> },
     { id: 'team', label: 'Team', icon: <Users2 className="w-4 h-4" /> },
@@ -77,16 +89,16 @@ export const Navigation: React.FC<NavigationProps> = ({
             className="w-10 h-10 rounded-lg object-contain bg-zinc-800 border border-zinc-700 p-0.5 shrink-0"
           />
         ) : (
-          <div className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white shrink-0 shadow-sm">
+          <div className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white shrink-0 shadow-xs">
             <Building2 className="w-5 h-5 text-zinc-100" />
           </div>
         )}
         <div className="min-w-0 flex-1">
           <h1
             className="text-xs font-semibold uppercase tracking-wider text-zinc-400 truncate"
-            title={company?.company_name || 'STUDIO ARCHVIBE'}
+            title={company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
           >
-            {company?.company_name || 'STUDIO ARCHVIBE'}
+            {company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
           </h1>
           <p className="text-sm font-bold text-white tracking-tight leading-tight truncate">
             {company?.tagline || 'Project Command'}
@@ -94,45 +106,48 @@ export const Navigation: React.FC<NavigationProps> = ({
         </div>
       </div>
 
-      {/* Quick Action Buttons (Spec #11) */}
+      {/* Quick Action Buttons */}
       <div className="p-3 space-y-2 border-b border-zinc-800/80">
         <button
           id="sidebar-new-project-btn"
           onClick={() => onOpenNewProject && onOpenNewProject()}
-          className="w-full flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white text-zinc-950 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer shadow-sm"
+          className="w-full flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white text-zinc-950 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
           <span>New Project</span>
         </button>
 
-        <button
-          id="sidebar-new-followup-btn"
-          onClick={() => onOpenNewFollowUp && onOpenNewFollowUp()}
-          className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700/80 text-zinc-200 border border-zinc-700 px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer"
-        >
-          <CalendarCheck className="w-3.5 h-3.5 text-zinc-400" />
-          <span>+ Follow-up</span>
-        </button>
+        <div className="space-y-1.5 pt-1">
+          <button
+            id="sidebar-new-followup-btn"
+            onClick={() => onOpenNewFollowUp && onOpenNewFollowUp()}
+            className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+          >
+            <CalendarCheck className="w-3.5 h-3.5 text-amber-400" />
+            <span>+ Follow-up</span>
+          </button>
+
+          <button
+            id="sidebar-new-task-btn"
+            onClick={() => onOpenNewTask && onOpenNewTask()}
+            className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+            <span>+ Task</span>
+          </button>
+
+          <button
+            id="sidebar-new-update-btn"
+            onClick={() => onOpenNewUpdate && onOpenNewUpdate()}
+            className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5 text-emerald-400" />
+            <span>+ Update</span>
+          </button>
+        </div>
       </div>
 
-      {/* Search trigger button */}
-      <div className="px-3 pt-3">
-        <button
-          id="sidebar-search-btn"
-          onClick={() => onOpenSearch && onOpenSearch()}
-          className="w-full flex items-center justify-between bg-zinc-950/60 hover:bg-zinc-950 border border-zinc-800 text-zinc-400 px-3 py-2 rounded-lg text-xs transition cursor-pointer group"
-        >
-          <div className="flex items-center gap-2">
-            <Search className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300" />
-            <span>Search workspace...</span>
-          </div>
-          <kbd className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700">
-            Ctrl+K
-          </kbd>
-        </button>
-      </div>
-
-      {/* Navigation Links (Spec #38) */}
+      {/* Navigation Links */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-400 px-3 py-1">
           Workspace
@@ -164,7 +179,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         })}
       </nav>
 
-      {/* Bottom Settings Link & Status (Spec #38) */}
+      {/* Bottom Settings Link & Status */}
       <div className="p-3 border-t border-zinc-800 space-y-1">
         <button
           id="nav-link-settings"

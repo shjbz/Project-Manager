@@ -83,6 +83,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Filtered & Sorted projects for the dashboard project area
   const filteredProjects = projects
     .filter((p) => {
+      if (p.is_archived) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const match =
@@ -250,7 +251,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'active' as const,
       label: 'Active',
       count: activeProjectsCount,
-      subtext: 'In execution',
       icon: <FolderKanban className="w-4 h-4 text-emerald-600" />,
       dotColor: 'bg-emerald-500',
     },
@@ -258,7 +258,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'follow_ups' as const,
       label: 'Follow-ups',
       count: followUpCount,
-      subtext: 'Touchpoints needed',
       icon: <CalendarCheck className="w-4 h-4 text-amber-500" />,
       dotColor: 'bg-amber-500',
     },
@@ -266,7 +265,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'due_this_week' as const,
       label: 'Due This Week',
       count: dueThisWeekCount,
-      subtext: 'Tasks & deadlines',
       icon: <Clock className="w-4 h-4 text-sky-500" />,
       dotColor: 'bg-sky-500',
     },
@@ -274,7 +272,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'overdue' as const,
       label: 'Overdue',
       count: overdueCount,
-      subtext: 'Immediate action',
       icon: <AlertTriangle className="w-4 h-4 text-rose-500" />,
       dotColor: 'bg-rose-500',
       urgentAlert: overdueCount > 0,
@@ -283,7 +280,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'at_risk' as const,
       label: 'At Risk',
       count: atRiskCount,
-      subtext: 'Requires attention',
       icon: <AlertCircle className="w-4 h-4 text-orange-500" />,
       dotColor: 'bg-orange-500',
     },
@@ -291,7 +287,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'urgent' as const,
       label: 'Urgent',
       count: urgentCount,
-      subtext: 'High priority',
       icon: <Flame className="w-4 h-4 text-rose-500" />,
       dotColor: 'bg-rose-500',
     },
@@ -299,7 +294,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'completed' as const,
       label: 'Completed',
       count: completedCount,
-      subtext: 'Delivered',
       icon: <CheckCircle className="w-4 h-4 text-zinc-500" />,
       dotColor: 'bg-zinc-400',
     },
@@ -396,7 +390,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                <div className="my-1 flex items-baseline justify-between">
+                <div className="mt-2 flex items-baseline justify-between">
                   <div
                     className={`text-2xl font-black tracking-tight ${
                       active
@@ -413,17 +407,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       Filtered
                     </span>
                   )}
-                </div>
-
-                <div
-                  className={`text-[11px] font-medium flex items-center justify-between ${
-                    active ? 'text-zinc-300' : 'text-zinc-500'
-                  }`}
-                >
-                  <span className="truncate">{card.subtext}</span>
-                  <span className="text-[10px] opacity-70 group-hover:opacity-100 font-semibold">
-                    {active ? '✕ Clear' : 'Filter →'}
-                  </span>
                 </div>
               </button>
             );

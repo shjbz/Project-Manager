@@ -1,4 +1,6 @@
-export type Priority = 'urgent' | 'standard' | 'low';
+export type Priority = 'urgent' | 'standard' | 'medium' | 'low';
+
+export type TaskStatus = 'pending' | 'in_progress' | 'completed';
 
 export type ProjectStatus =
   | 'active'
@@ -30,6 +32,7 @@ export interface CompanySettings {
   company_phone: string;
   company_email: string;
   currency_symbol?: string;
+  is_password_set?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -93,6 +96,7 @@ export interface Task {
 
 export type FollowUpMethod =
   | 'Phone'
+  | 'In-Person'
   | 'WhatsApp'
   | 'Email'
   | 'Meeting'
@@ -157,6 +161,8 @@ export interface Project {
   start_date: string; // YYYY-MM-DD
   expected_completion_date?: string; // YYYY-MM-DD
   actual_completion_date?: string; // YYYY-MM-DD
+  is_archived?: boolean;
+  archived_at?: string;
   created_at: string;
   updated_at: string;
 

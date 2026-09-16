@@ -16,7 +16,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 export interface DatabaseSchema {
-  settings: CompanySettings & { password_hash: string; salt: string };
+  settings: CompanySettings & { password_hash: string; salt: string; is_password_set?: boolean };
   team_members: TeamMember[];
   clients: Client[];
   projects: Project[];
@@ -33,19 +33,25 @@ export function hashPassword(password: string, salt?: string): { hash: string; s
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  const testHash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(testHash, 'hex'));
+  if (!password || !hash || !salt) return false;
+  try {
+    const testHash = crypto.scryptSync(password, salt, 64).toString('hex');
+    const hashBuf = Buffer.from(hash, 'hex');
+    const testBuf = Buffer.from(testHash, 'hex');
+    if (hashBuf.length !== testBuf.length) return false;
+    return crypto.timingSafeEqual(hashBuf, testBuf);
+  } catch {
+    return false;
+  }
 }
 
 function getInitialDatabase(): DatabaseSchema {
-  const defaultPw = hashPassword('company2026');
-
   const team: TeamMember[] = [
     {
       id: 'tm-1',
       name: 'Arif Hasan',
       designation: 'Principal Project Architect',
-      email: 'arif@archvibe.com',
+      email: 'arif@falconeng.com',
       phone: '+880 1711-000001',
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       status: 'active',
@@ -57,7 +63,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 'tm-2',
       name: 'Shuvo Rahman',
       designation: 'Senior Interior Designer',
-      email: 'shuvo@archvibe.com',
+      email: 'shuvo@falconeng.com',
       phone: '+880 1711-000002',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
       status: 'active',
@@ -69,7 +75,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 'tm-3',
       name: 'Nabil Ahmed',
       designation: 'Site & Structural Engineer',
-      email: 'nabil@archvibe.com',
+      email: 'nabil@falconeng.com',
       phone: '+880 1711-000003',
       avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
       status: 'active',
@@ -81,7 +87,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 'tm-4',
       name: 'Tania Sultana',
       designation: 'BOQ & Material Specialist',
-      email: 'tania@archvibe.com',
+      email: 'tania@falconeng.com',
       phone: '+880 1711-000004',
       avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
       status: 'active',
@@ -93,7 +99,7 @@ function getInitialDatabase(): DatabaseSchema {
       id: 'tm-5',
       name: 'Fahim Chowdhury',
       designation: 'Junior Architect & 3D Visualizer',
-      email: 'fahim@archvibe.com',
+      email: 'fahim@falconeng.com',
       phone: '+880 1711-000005',
       avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&auto=format&fit=crop&q=80',
       status: 'active',
@@ -478,15 +484,16 @@ function getInitialDatabase(): DatabaseSchema {
   return {
     settings: {
       id: 'company-main',
-      company_name: 'Studio Archvibe & Associates',
-      company_address: 'House 42, Road 11, Block D, Banani, Dhaka 1213',
+      company_name: 'Falcon Engineering & Construction',
+      company_address: 'Falcon Tower, Level 8, 45 Commercial Avenue, Dhaka 1212',
       company_phone: '+880 1711-234567',
-      company_email: 'studio@archvibe.com',
+      company_email: 'contact@falconeng.com',
       currency_symbol: '৳',
-      password_hash: defaultPw.hash,
-      salt: defaultPw.salt,
+      is_password_set: false,
+      password_hash: '',
+      salt: '',
       created_at: '2026-01-01T00:00:00.000Z',
-      updated_at: '2026-09-15T00:00:00.000Z',
+      updated_at: '2026-09-16T00:00:00.000Z',
     },
     team_members: team,
     clients,
@@ -556,9 +563,20 @@ export class Database {
   }
 
   // --- Settings & Auth ---
+  public isPasswordSet(): boolean {
+    return Boolean(
+      this.data.settings.is_password_set &&
+      this.data.settings.password_hash &&
+      this.data.settings.salt
+    );
+  }
+
   public getSettings(): CompanySettings {
     const { password_hash, salt, ...safe } = this.data.settings;
-    return safe;
+    return {
+      ...safe,
+      is_password_set: this.isPasswordSet(),
+    };
   }
 
   public updateSettings(updates: Partial<CompanySettings>): CompanySettings {
@@ -572,16 +590,33 @@ export class Database {
   }
 
   public verifyCompanyPassword(password: string): boolean {
+    if (!this.isPasswordSet()) {
+      return false;
+    }
     return verifyPassword(password, this.data.settings.password_hash, this.data.settings.salt);
   }
 
+  public setInitialPassword(password: string): boolean {
+    const { hash, salt } = hashPassword(password);
+    this.data.settings.password_hash = hash;
+    this.data.settings.salt = salt;
+    this.data.settings.is_password_set = true;
+    this.data.settings.updated_at = new Date().toISOString();
+    this.save();
+    return true;
+  }
+
   public changeCompanyPassword(currentPassword: string, newPassword: string): boolean {
+    if (!this.isPasswordSet()) {
+      return this.setInitialPassword(newPassword);
+    }
     if (!this.verifyCompanyPassword(currentPassword)) {
       return false;
     }
     const { hash, salt } = hashPassword(newPassword);
     this.data.settings.password_hash = hash;
     this.data.settings.salt = salt;
+    this.data.settings.is_password_set = true;
     this.data.settings.updated_at = new Date().toISOString();
     this.save();
     return true;
@@ -703,10 +738,41 @@ export class Database {
     return this.data.team_members[idx];
   }
 
-  public deleteTeamMember(id: string): boolean {
+  public deleteTeamMember(id: string, reassignToMemberId?: string): boolean {
     const initialLen = this.data.team_members.length;
     this.data.team_members = this.data.team_members.filter((m) => m.id !== id);
     if (this.data.team_members.length !== initialLen) {
+      if (reassignToMemberId) {
+        // Reassign project leads and team memberships
+        this.data.projects.forEach((p) => {
+          if (p.project_lead_id === id) {
+            p.project_lead_id = reassignToMemberId;
+            if (!p.team_member_ids) p.team_member_ids = [];
+            if (!p.team_member_ids.includes(reassignToMemberId)) {
+              p.team_member_ids.push(reassignToMemberId);
+            }
+          }
+          if (p.team_member_ids && p.team_member_ids.includes(id)) {
+            p.team_member_ids = p.team_member_ids.filter((mid) => mid !== id);
+            if (!p.team_member_ids.includes(reassignToMemberId)) {
+              p.team_member_ids.push(reassignToMemberId);
+            }
+          }
+        });
+        // Reassign tasks
+        this.data.tasks.forEach((t) => {
+          if (t.assigned_to === id) {
+            t.assigned_to = reassignToMemberId;
+          }
+        });
+      } else {
+        // Remove from team_member_ids without replacement
+        this.data.projects.forEach((p) => {
+          if (p.team_member_ids && p.team_member_ids.includes(id)) {
+            p.team_member_ids = p.team_member_ids.filter((mid) => mid !== id);
+          }
+        });
+      }
       this.save();
       return true;
     }
@@ -1021,6 +1087,50 @@ export class Database {
       return true;
     }
     return false;
+  }
+
+  public archiveProject(id: string): Project | null {
+    const idx = this.data.projects.findIndex((p) => p.id === id);
+    if (idx === -1) return null;
+    this.data.projects[idx] = {
+      ...this.data.projects[idx],
+      is_archived: true,
+      archived_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.data.activities.unshift({
+      id: 'act-' + Date.now(),
+      project_id: id,
+      team_member_id: this.data.projects[idx].project_lead_id,
+      activity_type: 'General Update',
+      description: `Project "${this.data.projects[idx].project_name}" moved to Project Archive.`,
+      activity_date: '2026-09-15',
+      created_at: new Date().toISOString(),
+    });
+    this.save();
+    return this.getProjectById(id) || null;
+  }
+
+  public restoreProject(id: string): Project | null {
+    const idx = this.data.projects.findIndex((p) => p.id === id);
+    if (idx === -1) return null;
+    this.data.projects[idx] = {
+      ...this.data.projects[idx],
+      is_archived: false,
+      archived_at: undefined,
+      updated_at: new Date().toISOString(),
+    };
+    this.data.activities.unshift({
+      id: 'act-' + Date.now(),
+      project_id: id,
+      team_member_id: this.data.projects[idx].project_lead_id,
+      activity_type: 'General Update',
+      description: `Project "${this.data.projects[idx].project_name}" restored from Archive to active projects.`,
+      activity_date: '2026-09-15',
+      created_at: new Date().toISOString(),
+    });
+    this.save();
+    return this.getProjectById(id) || null;
   }
 
   // --- Tasks ---

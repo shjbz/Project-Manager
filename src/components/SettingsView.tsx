@@ -330,7 +330,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="e.g. Studio Archvibe & Associates"
+                placeholder="e.g. Falcon Engineering & Construction"
                 required
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
               />

@@ -17,9 +17,11 @@ import {
   CheckSquare,
   History,
   Users,
+  Archive,
 } from 'lucide-react';
 import type { Project, TeamMember, Task, FollowUp } from '../types';
 import { PriorityBadge, StatusBadge } from './Badges';
+import { ConfirmModal } from './modals/ConfirmModal';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -27,9 +29,15 @@ interface ProjectDetailViewProps {
   onBack: () => void;
   onEditProject: () => void;
   onDeleteProject: () => void;
+  onArchiveProject?: (projectId: string) => Promise<void>;
+  onRestoreProject?: (projectId: string) => Promise<void>;
   onOpenAddTask: () => void;
   onOpenAddFollowUp: () => void;
   onOpenAddUpdate: () => void;
+  onEditTask?: (task: Task) => void;
+  onDeleteTask?: (taskId: string) => Promise<void>;
+  onEditFollowUp?: (fu: FollowUp) => void;
+  onDeleteFollowUp?: (fuId: string) => Promise<void>;
   onUpdateTaskStatus: (taskId: string, newStatus: Task['status']) => Promise<void>;
   onUpdateFollowUpStatus: (fuId: string, newStatus: FollowUp['status']) => Promise<void>;
   onUpdateProjectQuick: (updates: Partial<Project>) => Promise<void>;
@@ -43,17 +51,28 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   onBack,
   onEditProject,
   onDeleteProject,
+  onArchiveProject,
+  onRestoreProject,
   onOpenAddTask,
   onOpenAddFollowUp,
   onOpenAddUpdate,
+  onEditTask,
+  onDeleteTask,
+  onEditFollowUp,
+  onDeleteFollowUp,
   onUpdateTaskStatus,
   onUpdateFollowUpStatus,
   onUpdateProjectQuick,
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [updating, setUpdating] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [followUpToDelete, setFollowUpToDelete] = useState<FollowUp | null>(null);
 
   const isOverdue = project.is_overdue;
+  const otherMembers = (project.team_members || []).filter((m) => m.id !== project.project_lead_id);
 
   const handleStatusChange = async (newStatus: any) => {
     setUpdating(true);
@@ -116,6 +135,16 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           </button>
 
           <button
+            id="detail-archive-project-btn"
+            onClick={() => setIsArchiveModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-medium rounded-lg transition cursor-pointer"
+            title={project.is_archived ? 'Restore Project' : 'Archive Project'}
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>{project.is_archived ? 'Restore' : 'Archive'}</span>
+          </button>
+
+          <button
             id="detail-edit-project-btn"
             onClick={onEditProject}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg transition cursor-pointer"
@@ -126,11 +155,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 
           <button
             id="detail-delete-project-btn"
-            onClick={() => {
-              if (confirm(`Are you sure you want to delete project "${project.project_name}"?`)) {
-                onDeleteProject();
-              }
-            }}
+            onClick={() => setIsDeleteModalOpen(true)}
             title="Delete Project"
             className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
           >
@@ -421,7 +446,29 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                           </span>
                         </div>
                       </div>
-                      <PriorityBadge priority={task.priority} size="sm" />
+                      <div className="flex items-center gap-2">
+                        <PriorityBadge priority={task.priority} size="sm" />
+                        {onEditTask && (
+                          <button
+                            type="button"
+                            onClick={() => onEditTask(task)}
+                            className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded transition cursor-pointer"
+                            title="Edit Task"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onDeleteTask && (
+                          <button
+                            type="button"
+                            onClick={() => setTaskToDelete(task)}
+                            className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                            title="Delete Task"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -522,6 +569,49 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 <div className="text-xs text-zinc-400">No lead assigned.</div>
               )}
             </div>
+
+            {/* Other Team Members Card (just below Project Lead) */}
+            <div className="bg-white border border-zinc-200 rounded-xl p-5 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-zinc-500" />
+                  <span>Other Team Members</span>
+                </span>
+                <span className="text-[10px] text-zinc-400 font-semibold">
+                  {otherMembers.length} {otherMembers.length === 1 ? 'member' : 'members'}
+                </span>
+              </h3>
+
+              {otherMembers.length > 0 ? (
+                <div className="space-y-2.5 pt-1 divide-y divide-zinc-100">
+                  {otherMembers.map((member) => (
+                    <div key={member.id} className="flex items-center gap-3 text-xs pt-2.5 first:pt-0">
+                      {member.avatar ? (
+                        <img
+                          src={member.avatar}
+                          alt={member.name}
+                          referrerPolicy="no-referrer"
+                          className="w-8 h-8 rounded-full object-cover border border-zinc-200 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-700 flex items-center justify-center font-bold text-xs border border-zinc-200 shrink-0">
+                          {member.name.charAt(0)}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-zinc-900 truncate">{member.name}</div>
+                        <div className="text-[11px] text-zinc-500 truncate">{member.designation}</div>
+                        {member.phone && (
+                          <div className="text-[10px] text-zinc-400">{member.phone}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-400 py-1">No other team members assigned.</div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -596,8 +686,28 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex items-center gap-2">
                     <PriorityBadge priority={task.priority} size="sm" />
+                    {onEditTask && (
+                      <button
+                        type="button"
+                        onClick={() => onEditTask(task)}
+                        className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-md transition cursor-pointer"
+                        title="Edit Task"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onDeleteTask && (
+                      <button
+                        type="button"
+                        onClick={() => setTaskToDelete(task)}
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                        title="Delete Task"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -667,6 +777,26 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                       >
                         {fu.status === 'completed' ? 'Completed' : 'Mark Completed'}
                       </button>
+                      {onEditFollowUp && (
+                        <button
+                          type="button"
+                          onClick={() => onEditFollowUp(fu)}
+                          className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded transition cursor-pointer"
+                          title="Edit Follow-up"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {onDeleteFollowUp && (
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpToDelete(fu)}
+                          className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                          title="Delete Follow-up"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -817,6 +947,70 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           </div>
         </div>
       )}
+      {/* Modals for confirmation */}
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={async () => {
+          setIsDeleteModalOpen(false);
+          await onDeleteProject();
+        }}
+        title="Delete Project"
+        message={`Are you sure you want to permanently delete "${project.project_name}"? All associated tasks, follow-ups, and logs will be permanently removed. This cannot be undone.`}
+        confirmLabel="Delete Project"
+        isDestructive={true}
+      />
+
+      <ConfirmModal
+        isOpen={isArchiveModalOpen}
+        onClose={() => setIsArchiveModalOpen(false)}
+        onConfirm={async () => {
+          setIsArchiveModalOpen(false);
+          if (project.is_archived) {
+            if (onRestoreProject) await onRestoreProject(project.id);
+          } else {
+            if (onArchiveProject) await onArchiveProject(project.id);
+          }
+        }}
+        title={project.is_archived ? 'Restore Project' : 'Archive Project'}
+        message={
+          project.is_archived
+            ? `Restore "${project.project_name}" to active projects?`
+            : `Move "${project.project_name}" to the Project Archive? It will be safely hidden from active dashboard boards while preserving all historical records.`
+        }
+        confirmLabel={project.is_archived ? 'Restore Project' : 'Archive Project'}
+        isDestructive={false}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(taskToDelete)}
+        onClose={() => setTaskToDelete(null)}
+        onConfirm={async () => {
+          if (taskToDelete && onDeleteTask) {
+            await onDeleteTask(taskToDelete.id);
+          }
+          setTaskToDelete(null);
+        }}
+        title="Delete Task"
+        message={`Are you sure you want to delete task "${taskToDelete?.title}"?`}
+        confirmLabel="Delete Task"
+        isDestructive={true}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(followUpToDelete)}
+        onClose={() => setFollowUpToDelete(null)}
+        onConfirm={async () => {
+          if (followUpToDelete && onDeleteFollowUp) {
+            await onDeleteFollowUp(followUpToDelete.id);
+          }
+          setFollowUpToDelete(null);
+        }}
+        title="Delete Follow-up"
+        message="Are you sure you want to delete this follow-up record?"
+        confirmLabel="Delete Follow-up"
+        isDestructive={true}
+      />
     </div>
   );
 };

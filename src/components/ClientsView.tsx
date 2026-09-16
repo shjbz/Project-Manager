@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Client, Project } from '../types';
 import { PriorityBadge, StatusBadge } from './Badges';
+import { ConfirmModal } from './modals/ConfirmModal';
 
 interface ClientsViewProps {
   clients: Client[];
@@ -33,6 +34,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(clients[0]?.id || null);
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
 
   const filteredClients = clients.filter((c) => {
     if (!search) return true;
@@ -173,11 +175,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     <span>Edit</span>
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`Delete client record "${activeClient.name}"?`)) {
-                        onDeleteClient(activeClient.id);
-                      }
-                    }}
+                    onClick={() => setClientToDelete(activeClient)}
                     className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
                     title="Delete Client"
                   >
@@ -284,6 +282,24 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           )}
         </div>
       </div>
+      <ConfirmModal
+        isOpen={Boolean(clientToDelete)}
+        onClose={() => setClientToDelete(null)}
+        onConfirm={async () => {
+          if (clientToDelete) {
+            await onDeleteClient(clientToDelete.id);
+            if (selectedClientId === clientToDelete.id) {
+              const remaining = clients.filter((c) => c.id !== clientToDelete.id);
+              setSelectedClientId(remaining[0]?.id || null);
+            }
+          }
+          setClientToDelete(null);
+        }}
+        title="Delete Client Record"
+        message={`Are you sure you want to delete client "${clientToDelete?.name}"? Any linked projects will have their client association cleared.`}
+        confirmLabel="Delete Client"
+        isDestructive={true}
+      />
     </div>
   );
 };

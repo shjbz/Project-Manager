@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, CalendarCheck } from 'lucide-react';
-import type { Project, TeamMember, FollowUpMethod } from '../../types';
+import type { Project, TeamMember, FollowUpMethod, FollowUp } from '../../types';
 
 interface FollowUpModalProps {
   isOpen: boolean;
@@ -9,9 +9,10 @@ interface FollowUpModalProps {
   projects: Project[];
   team: TeamMember[];
   defaultProjectId?: string;
+  initialData?: FollowUp | null;
 }
 
-const METHODS: FollowUpMethod[] = ['Phone', 'WhatsApp', 'Email', 'Meeting', 'Site Visit', 'Other'];
+const METHODS: FollowUpMethod[] = ['Phone', 'In-Person', 'WhatsApp', 'Email', 'Site Visit'];
 
 export const FollowUpModal: React.FC<FollowUpModalProps> = ({
   isOpen,
@@ -20,31 +21,45 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
   projects,
   team,
   defaultProjectId,
+  initialData,
 }) => {
-  const [projectId, setProjectId] = useState(defaultProjectId || (projects[0]?.id || ''));
+  const [projectId, setProjectId] = useState(
+    initialData?.project_id || defaultProjectId || (projects[0]?.id || '')
+  );
   const [followUpDate, setFollowUpDate] = useState('2026-09-17');
   const [method, setMethod] = useState<FollowUpMethod>('Phone');
   const [notes, setNotes] = useState('');
   const [createdBy, setCreatedBy] = useState(team[0]?.id || '');
+  const [status, setStatus] = useState<'pending' | 'completed'>('pending');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset fields to blank and auto-select project on open
   useEffect(() => {
     if (isOpen) {
-      setProjectId(defaultProjectId || (projects[0]?.id || ''));
-      setNotes('');
-      setFollowUpDate('2026-09-17');
-      setMethod('Phone');
-      setCreatedBy(team[0]?.id || '');
+      if (initialData) {
+        setProjectId(initialData.project_id);
+        setFollowUpDate(initialData.follow_up_date);
+        setMethod(initialData.method);
+        setNotes(initialData.notes);
+        setCreatedBy(initialData.created_by || team[0]?.id || '');
+        setStatus(initialData.status);
+      } else {
+        setProjectId(defaultProjectId || (projects[0]?.id || ''));
+        setNotes('');
+        setFollowUpDate('2026-09-17');
+        setMethod('Phone');
+        setCreatedBy(team[0]?.id || '');
+        setStatus('pending');
+      }
       setError(null);
       setSaving(false);
     }
-  }, [isOpen, defaultProjectId, projects, team]);
+  }, [isOpen, defaultProjectId, projects, team, initialData]);
 
   if (!isOpen) return null;
 
   const currentProject = projects.find((p) => p.id === projectId);
+  const isEditing = Boolean(initialData);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,11 +81,11 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
         method,
         notes: notes.trim(),
         created_by: createdBy || undefined,
-        status: 'pending',
+        status,
       });
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to save follow-up');
+      setError(err.message || 'Failed to record follow-up');
     } finally {
       setSaving(false);
     }
@@ -88,8 +103,12 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
               <CalendarCheck className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-zinc-900">Record Follow-up</h2>
-              <p className="text-[11px] text-zinc-500">Schedule client contact or log discussion</p>
+              <h2 className="text-sm font-bold text-zinc-900">
+                {isEditing ? 'Edit Follow-up' : 'Record Follow-up'}
+              </h2>
+              <p className="text-[11px] text-zinc-500">
+                {isEditing ? 'Update contact details or notes' : 'Schedule client contact or log discussion'}
+              </p>
             </div>
           </div>
           <button
@@ -110,20 +129,16 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
           <div>
             <label className="block font-semibold text-zinc-700 mb-1">Project *</label>
             {defaultProjectId && currentProject ? (
-              <div className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 font-medium flex items-center justify-between">
-                <span>
-                  {currentProject.project_name} {currentProject.client?.name ? `(${currentProject.client.name})` : ''}
-                </span>
-                <span className="text-[10px] bg-zinc-200 text-zinc-700 px-1.5 py-0.5 rounded font-semibold">
-                  Inside Project
-                </span>
+              <div className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 font-medium">
+                {currentProject.project_name}{' '}
+                {currentProject.client?.name ? `(${currentProject.client.name})` : ''}
               </div>
             ) : (
               <select
                 id="followup-project-select"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -143,7 +158,7 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
                 value={followUpDate}
                 onChange={(e) => setFollowUpDate(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               />
             </div>
 
@@ -153,7 +168,7 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
                 id="followup-method-select"
                 value={method}
                 onChange={(e) => setMethod(e.target.value as FollowUpMethod)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               >
                 {METHODS.map((m) => (
                   <option key={m} value={m}>
@@ -164,20 +179,36 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="block font-semibold text-zinc-700 mb-1">Followed Up By</label>
-            <select
-              id="followup-member-select"
-              value={createdBy}
-              onChange={(e) => setCreatedBy(e.target.value)}
-              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
-            >
-              {team.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.designation})
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-zinc-700 mb-1">Followed Up By</label>
+              <select
+                id="followup-member-select"
+                value={createdBy}
+                onChange={(e) => setCreatedBy(e.target.value)}
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
+              >
+                {team.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.designation})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {isEditing && (
+              <div>
+                <label className="block font-semibold text-zinc-700 mb-1">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as 'pending' | 'completed')}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+            )}
           </div>
 
           <div>
@@ -189,7 +220,7 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
               rows={3}
               placeholder="e.g. Client requested revised kitchen layout and updated BOQ before Friday meeting."
               required
-              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
             />
           </div>
 
@@ -205,9 +236,9 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
               id="save-followup-btn"
               type="submit"
               disabled={saving}
-              className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-semibold shadow transition cursor-pointer disabled:opacity-50"
+              className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
             >
-              {saving ? 'Saving...' : 'Save Follow-up'}
+              {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Save Follow-up'}
             </button>
           </div>
         </form>

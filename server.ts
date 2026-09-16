@@ -80,6 +80,7 @@ async function startServer() {
       company_logo: s.company_logo || s.logo_url,
       logo_url: s.logo_url || s.company_logo,
       tagline: s.tagline || 'Centralized Workspace & Operations Command',
+      isPasswordSet: db.isPasswordSet(),
     });
   });
 
@@ -97,11 +98,65 @@ async function startServer() {
     next();
   };
 
-  // --- Auth Endpoints (Spec #54, #55) ---
+  // --- Auth Endpoints ---
+  app.get('/api/auth/status', (_req, res) => {
+    const s = db.getSettings();
+    res.json({
+      isPasswordSet: db.isPasswordSet(),
+      company_name: s.company_name,
+      company_logo: s.company_logo || s.logo_url,
+      logo_url: s.logo_url || s.company_logo,
+      tagline: s.tagline || 'Centralized Workspace & Operations Command',
+    });
+  });
+
+  app.post('/api/auth/setup-password', (req, res) => {
+    if (db.isPasswordSet()) {
+      res.status(400).json({ error: 'Company password has already been configured. Please log in.' });
+      return;
+    }
+
+    const { password } = req.body;
+    if (!password || typeof password !== 'string' || !password.trim()) {
+      res.status(400).json({ error: 'Password is required' });
+      return;
+    }
+
+    if (password.trim().length < 4) {
+      res.status(400).json({ error: 'Password must be at least 4 characters long' });
+      return;
+    }
+
+    db.setInitialPassword(password.trim());
+    const token = createSession();
+
+    res.cookie('company_session', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: SESSION_TTL_MS,
+      path: '/',
+    });
+
+    res.json({
+      success: true,
+      token,
+      company: db.getSettings(),
+    });
+  });
+
   app.post('/api/auth/login', (req, res) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     if (isRateLimited(ip)) {
       res.status(429).json({ error: 'Too many failed attempts. Please wait 30 seconds.' });
+      return;
+    }
+
+    if (!db.isPasswordSet()) {
+      res.status(400).json({
+        error: 'Master password has not been set yet. Please configure the master password.',
+        needsSetup: true,
+      });
       return;
     }
 
@@ -111,7 +166,7 @@ async function startServer() {
       return;
     }
 
-    const valid = db.verifyCompanyPassword(password);
+    const valid = db.verifyCompanyPassword(password.trim());
     if (!valid) {
       recordFailedAttempt(ip);
       res.status(401).json({ error: 'Incorrect company password' });
@@ -138,34 +193,49 @@ async function startServer() {
   });
 
   app.get('/api/auth/session', (req, res) => {
+    const isPasswordSet = db.isPasswordSet();
     const cookieToken = req.cookies?.company_session;
     const authHeader = req.headers.authorization;
     const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
     const token = cookieToken || headerToken;
 
     if (!validateSession(token)) {
-      res.status(401).json({ authenticated: false });
+      res.status(401).json({ authenticated: false, isPasswordSet });
       return;
     }
 
     res.json({
       authenticated: true,
+      isPasswordSet,
       company: db.getSettings(),
     });
   });
 
+  app.post('/api/auth/logout', (req, res) => {
+    const cookieToken = req.cookies?.company_session;
+    const authHeader = req.headers.authorization;
+    const headerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+    const token = cookieToken || headerToken;
+    if (token) {
+      activeSessions.delete(token);
+    }
+    res.clearCookie('company_session', { path: '/' });
+    res.json({ success: true });
+  });
+
   app.post('/api/auth/change-password', requireAuth, (req, res) => {
     const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
-      res.status(400).json({ error: 'Current and new password are required' });
-      return;
-    }
-    if (newPassword.length < 4) {
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 4) {
       res.status(400).json({ error: 'New password must be at least 4 characters' });
       return;
     }
 
-    const changed = db.changeCompanyPassword(currentPassword, newPassword);
+    if (db.isPasswordSet() && (!currentPassword || typeof currentPassword !== 'string')) {
+      res.status(400).json({ error: 'Current password is required' });
+      return;
+    }
+
+    const changed = db.changeCompanyPassword(currentPassword ? currentPassword.trim() : '', newPassword.trim());
     if (!changed) {
       res.status(400).json({ error: 'Current password verification failed' });
       return;
@@ -243,6 +313,24 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post('/api/projects/:id/archive', requireAuth, (req, res) => {
+    const proj = db.archiveProject(req.params.id);
+    if (!proj) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(proj);
+  });
+
+  app.post('/api/projects/:id/restore', requireAuth, (req, res) => {
+    const proj = db.restoreProject(req.params.id);
+    if (!proj) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+    res.json(proj);
+  });
+
   // --- Clients (Spec #19, #20, #49) ---
   app.get('/api/clients', requireAuth, (req, res) => {
     res.json(db.getClients());
@@ -299,7 +387,8 @@ async function startServer() {
   });
 
   app.delete('/api/team/:id', requireAuth, (req, res) => {
-    const deleted = db.deleteTeamMember(req.params.id);
+    const { reassignTo } = req.body || {};
+    const deleted = db.deleteTeamMember(req.params.id, reassignTo);
     if (!deleted) {
       res.status(404).json({ error: 'Team member not found' });
       return;

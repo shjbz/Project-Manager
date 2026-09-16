@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { DashboardView } from './components/DashboardView';
 import { ProjectsView } from './components/ProjectsView';
+import { ArchiveView } from './components/ArchiveView';
 import { ProjectDetailView } from './components/ProjectDetailView';
 import { ClientsView } from './components/ClientsView';
 import { TeamView } from './components/TeamView';
@@ -27,7 +28,7 @@ export default function App() {
   const [company, setCompany] = useState<CompanySettings | null>(null);
 
   // Navigation State
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'projects' | 'clients' | 'team' | 'settings'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'projects' | 'archive' | 'clients' | 'team' | 'settings'>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Global Search Modal
@@ -65,9 +66,11 @@ export default function App() {
 
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpTargetProjectId, setFollowUpTargetProjectId] = useState<string | undefined>(undefined);
+  const [editingFollowUp, setEditingFollowUp] = useState<FollowUp | null>(null);
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskTargetProjectId, setTaskTargetProjectId] = useState<string | undefined>(undefined);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateTargetProjectId, setUpdateTargetProjectId] = useState<string | undefined>(undefined);
@@ -180,6 +183,16 @@ export default function App() {
     await loadAllData();
   };
 
+  const handleArchiveProject = async (id: string) => {
+    await api.archiveProject(id);
+    await loadAllData();
+  };
+
+  const handleRestoreProject = async (id: string) => {
+    await api.restoreProject(id);
+    await loadAllData();
+  };
+
   const handleQuickUpdateProject = async (updates: Partial<Project>) => {
     if (!selectedProjectId) return;
     await api.updateProject(selectedProjectId, updates);
@@ -188,7 +201,17 @@ export default function App() {
 
   // Task Actions
   const handleSaveTask = async (taskData: any) => {
-    await api.createTask(taskData);
+    if (editingTask) {
+      await api.updateTask(editingTask.id, taskData);
+    } else {
+      await api.createTask(taskData);
+    }
+    setEditingTask(null);
+    await loadAllData();
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    await api.deleteTask(taskId);
     await loadAllData();
   };
 
@@ -199,7 +222,17 @@ export default function App() {
 
   // Follow-up Actions
   const handleSaveFollowUp = async (fuData: any) => {
-    await api.createFollowUp(fuData);
+    if (editingFollowUp) {
+      await api.updateFollowUp(editingFollowUp.id, fuData);
+    } else {
+      await api.createFollowUp(fuData);
+    }
+    setEditingFollowUp(null);
+    await loadAllData();
+  };
+
+  const handleDeleteFollowUp = async (fuId: string) => {
+    await api.deleteFollowUp(fuId);
     await loadAllData();
   };
 
@@ -239,8 +272,8 @@ export default function App() {
     await loadAllData();
   };
 
-  const handleDeleteTeamMember = async (memberId: string) => {
-    await api.deleteTeamMember(memberId);
+  const handleDeleteTeamMember = async (memberId: string, reassignToId?: string) => {
+    await api.deleteTeamMember(memberId, reassignToId);
     await loadAllData();
   };
 
@@ -290,195 +323,238 @@ export default function App() {
             setProjectModalOpen(true);
           }}
           onOpenNewFollowUp={() => {
-            setFollowUpTargetProjectId(undefined);
+            setEditingFollowUp(null);
+            setFollowUpTargetProjectId(selectedProjectId || undefined);
             setFollowUpModalOpen(true);
           }}
-          onOpenSearch={() => setIsSearchOpen(true)}
+          onOpenNewTask={() => {
+            setEditingTask(null);
+            setTaskTargetProjectId(selectedProjectId || undefined);
+            setTaskModalOpen(true);
+          }}
+          onOpenNewUpdate={() => {
+            setUpdateTargetProjectId(selectedProjectId || undefined);
+            setUpdateModalOpen(true);
+          }}
           onLogout={handleLogout}
           urgentCount={stats.urgentProjects || 0}
           overdueCount={stats.overdue || 0}
+          archivedCount={projects.filter((p) => p.is_archived).length}
         />
 
-      {/* Main Content Area */}
-      <main className="flex-1 min-w-0 h-full overflow-y-auto">
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-        {selectedProject ? (
-          /* Project Detail View (Spec #29, #30, #48) */
-          <ProjectDetailView
-            project={selectedProject}
-            team={team}
-            onBack={() => setSelectedProjectId(null)}
-            onEditProject={() => {
-              setEditingProject(selectedProject);
-              setProjectModalOpen(true);
-            }}
-            onDeleteProject={() => handleDeleteProject(selectedProject.id)}
-            onOpenAddTask={() => {
-              setTaskTargetProjectId(selectedProject.id);
-              setTaskModalOpen(true);
-            }}
-            onOpenAddFollowUp={() => {
-              setFollowUpTargetProjectId(selectedProject.id);
-              setFollowUpModalOpen(true);
-            }}
-            onOpenAddUpdate={() => {
-              setUpdateTargetProjectId(selectedProject.id);
-              setUpdateModalOpen(true);
-            }}
-            onUpdateTaskStatus={handleUpdateTaskStatus}
-            onUpdateFollowUpStatus={handleUpdateFollowUpStatus}
-            onUpdateProjectQuick={handleQuickUpdateProject}
-          />
-        ) : currentNav === 'dashboard' ? (
-          /* Dashboard Overview View (Spec #11-#15, #31-#34) */
-          <DashboardView
-            stats={stats}
-            projects={projects}
-            team={team}
-            clients={clients}
-            followUpsAttention={followUpsAttention}
-            upcomingTasks={upcomingTasks}
-            overdueItems={overdueItems}
-            teamWorkload={teamWorkload}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-            onOpenNewProject={() => {
-              setEditingProject(null);
-              setProjectModalOpen(true);
-            }}
-            onOpenNewFollowUp={() => {
-              setFollowUpTargetProjectId(undefined);
-              setFollowUpModalOpen(true);
-            }}
-          />
-        ) : currentNav === 'projects' ? (
-          /* Projects Directory View (Spec #14, #15, #35, #36) */
-          <ProjectsView
-            projects={projects}
-            team={team}
-            clients={clients}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-            onOpenNewProject={() => {
-              setEditingProject(null);
-              setProjectModalOpen(true);
-            }}
-          />
-        ) : currentNav === 'clients' ? (
-          /* Clients View (Spec #20, #49) */
-          <ClientsView
-            clients={clients}
-            projects={projects}
-            onOpenNewClient={() => {
-              setEditingClient(null);
-              setClientModalOpen(true);
-            }}
-            onEditClient={(client) => {
-              setEditingClient(client);
-              setClientModalOpen(true);
-            }}
-            onDeleteClient={handleDeleteClient}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-          />
-        ) : currentNav === 'team' ? (
-          /* Team Directory View (Spec #21-#23) */
-          <TeamView
-            team={team}
-            projects={projects}
-            onOpenNewMember={() => {
-              setEditingTeamMember(null);
-              setTeamModalOpen(true);
-            }}
-            onEditMember={(member) => {
-              setEditingTeamMember(member);
-              setTeamModalOpen(true);
-            }}
-            onDeleteMember={handleDeleteTeamMember}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-          />
-        ) : currentNav === 'settings' ? (
-          /* Settings View (Spec #44-#46) */
-          <SettingsView
-            onRefreshAllData={loadAllData}
-            company={company}
-            onCompanyUpdated={(updated) => setCompany(updated)}
-          />
-        ) : null}
-        </div>
-      </main>
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 h-full overflow-y-auto">
+          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+            {selectedProject ? (
+              /* Project Detail View */
+              <ProjectDetailView
+                project={selectedProject}
+                team={team}
+                onBack={() => setSelectedProjectId(null)}
+                onEditProject={() => {
+                  setEditingProject(selectedProject);
+                  setProjectModalOpen(true);
+                }}
+                onDeleteProject={() => handleDeleteProject(selectedProject.id)}
+                onArchiveProject={handleArchiveProject}
+                onRestoreProject={handleRestoreProject}
+                onOpenAddTask={() => {
+                  setEditingTask(null);
+                  setTaskTargetProjectId(selectedProject.id);
+                  setTaskModalOpen(true);
+                }}
+                onOpenAddFollowUp={() => {
+                  setEditingFollowUp(null);
+                  setFollowUpTargetProjectId(selectedProject.id);
+                  setFollowUpModalOpen(true);
+                }}
+                onOpenAddUpdate={() => {
+                  setUpdateTargetProjectId(selectedProject.id);
+                  setUpdateModalOpen(true);
+                }}
+                onEditTask={(task) => {
+                  setEditingTask(task);
+                  setTaskTargetProjectId(task.project_id);
+                  setTaskModalOpen(true);
+                }}
+                onDeleteTask={handleDeleteTask}
+                onEditFollowUp={(fu) => {
+                  setEditingFollowUp(fu);
+                  setFollowUpTargetProjectId(fu.project_id);
+                  setFollowUpModalOpen(true);
+                }}
+                onDeleteFollowUp={handleDeleteFollowUp}
+                onUpdateTaskStatus={handleUpdateTaskStatus}
+                onUpdateFollowUpStatus={handleUpdateFollowUpStatus}
+                onUpdateProjectQuick={handleQuickUpdateProject}
+              />
+            ) : currentNav === 'dashboard' ? (
+              /* Dashboard Overview View */
+              <DashboardView
+                stats={stats}
+                projects={projects}
+                team={team}
+                clients={clients}
+                followUpsAttention={followUpsAttention}
+                upcomingTasks={upcomingTasks}
+                overdueItems={overdueItems}
+                teamWorkload={teamWorkload}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+                onOpenNewProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
+                onOpenNewFollowUp={() => {
+                  setEditingFollowUp(null);
+                  setFollowUpTargetProjectId(undefined);
+                  setFollowUpModalOpen(true);
+                }}
+              />
+            ) : currentNav === 'projects' ? (
+              /* Projects Directory View */
+              <ProjectsView
+                projects={projects.filter((p) => !p.is_archived)}
+                team={team}
+                clients={clients}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+                onOpenNewProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
+              />
+            ) : currentNav === 'archive' ? (
+              /* Project Archive View */
+              <ArchiveView
+                projects={projects}
+                team={team}
+                clients={clients}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+                onRestoreProject={handleRestoreProject}
+                onDeleteProject={handleDeleteProject}
+              />
+            ) : currentNav === 'clients' ? (
+              /* Clients View */
+              <ClientsView
+                clients={clients}
+                projects={projects.filter((p) => !p.is_archived)}
+                onOpenNewClient={() => {
+                  setEditingClient(null);
+                  setClientModalOpen(true);
+                }}
+                onEditClient={(client) => {
+                  setEditingClient(client);
+                  setClientModalOpen(true);
+                }}
+                onDeleteClient={handleDeleteClient}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+              />
+            ) : currentNav === 'team' ? (
+              /* Team Directory View */
+              <TeamView
+                team={team}
+                projects={projects.filter((p) => !p.is_archived)}
+                onOpenNewMember={() => {
+                  setEditingTeamMember(null);
+                  setTeamModalOpen(true);
+                }}
+                onEditMember={(member) => {
+                  setEditingTeamMember(member);
+                  setTeamModalOpen(true);
+                }}
+                onDeleteMember={handleDeleteTeamMember}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+              />
+            ) : currentNav === 'settings' ? (
+              /* Settings View */
+              <SettingsView
+                onRefreshAllData={loadAllData}
+                company={company}
+                onCompanyUpdated={(updated) => setCompany(updated)}
+              />
+            ) : null}
+          </div>
+        </main>
 
-      {/* Global Quick Search Modal (Cmd+K) (Spec #37) */}
-      <GlobalSearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        projects={projects}
-        clients={clients}
-        team={team}
-        onSelectProject={(id) => {
-          setSelectedProjectId(id);
-          setIsSearchOpen(false);
-        }}
-        onSelectClient={(id) => {
-          setCurrentNav('clients');
-          setIsSearchOpen(false);
-        }}
-        onSelectTeamMember={(id) => {
-          setCurrentNav('team');
-          setIsSearchOpen(false);
-        }}
-      />
+        {/* Global Quick Search Modal (Cmd+K) */}
+        <GlobalSearchModal
+          isOpen={isSearchOpen}
+          onClose={() => setIsSearchOpen(false)}
+          projects={projects.filter((p) => !p.is_archived)}
+          clients={clients}
+          team={team}
+          onSelectProject={(id) => {
+            setSelectedProjectId(id);
+            setIsSearchOpen(false);
+          }}
+          onSelectClient={() => {
+            setCurrentNav('clients');
+            setIsSearchOpen(false);
+          }}
+          onSelectTeamMember={() => {
+            setCurrentNav('team');
+            setIsSearchOpen(false);
+          }}
+        />
 
-      {/* Action Modals */}
-      <ProjectModal
-        isOpen={projectModalOpen}
-        onClose={() => setProjectModalOpen(false)}
-        onSave={handleSaveProject}
-        clients={clients}
-        team={team}
-        initialData={editingProject}
-      />
+        {/* Action Modals */}
+        <ProjectModal
+          isOpen={projectModalOpen}
+          onClose={() => setProjectModalOpen(false)}
+          onSave={handleSaveProject}
+          clients={clients}
+          team={team}
+          initialData={editingProject}
+        />
 
-      <FollowUpModal
-        isOpen={followUpModalOpen}
-        onClose={() => setFollowUpModalOpen(false)}
-        onSave={handleSaveFollowUp}
-        projects={projects}
-        team={team}
-        defaultProjectId={followUpTargetProjectId}
-      />
+        <FollowUpModal
+          isOpen={followUpModalOpen}
+          onClose={() => {
+            setFollowUpModalOpen(false);
+            setEditingFollowUp(null);
+          }}
+          onSave={handleSaveFollowUp}
+          projects={projects.filter((p) => !p.is_archived)}
+          team={team}
+          defaultProjectId={followUpTargetProjectId}
+          initialData={editingFollowUp}
+        />
 
-      {taskTargetProjectId && (
         <TaskModal
           isOpen={taskModalOpen}
-          onClose={() => setTaskModalOpen(false)}
+          onClose={() => {
+            setTaskModalOpen(false);
+            setEditingTask(null);
+          }}
           onSave={handleSaveTask}
           projectId={taskTargetProjectId}
+          projects={projects.filter((p) => !p.is_archived)}
           team={team}
+          initialData={editingTask}
         />
-      )}
 
-      {updateTargetProjectId && (
         <UpdateModal
           isOpen={updateModalOpen}
           onClose={() => setUpdateModalOpen(false)}
           onSave={handleSaveUpdate}
           projectId={updateTargetProjectId}
+          projects={projects.filter((p) => !p.is_archived)}
           team={team}
         />
-      )}
 
-      <ClientModal
-        isOpen={clientModalOpen}
-        onClose={() => setClientModalOpen(false)}
-        onSave={handleSaveClient}
-        initialData={editingClient}
-      />
+        <ClientModal
+          isOpen={clientModalOpen}
+          onClose={() => setClientModalOpen(false)}
+          onSave={handleSaveClient}
+          initialData={editingClient}
+        />
 
-      <TeamModal
-        isOpen={teamModalOpen}
-        onClose={() => setTeamModalOpen(false)}
-        onSave={handleSaveTeamMember}
-        initialData={editingTeamMember}
-      />
-    </div>
+        <TeamModal
+          isOpen={teamModalOpen}
+          onClose={() => setTeamModalOpen(false)}
+          onSave={handleSaveTeamMember}
+          initialData={editingTeamMember}
+        />
+      </div>
     </ErrorBoundary>
   );
 }

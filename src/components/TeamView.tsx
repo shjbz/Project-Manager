@@ -15,13 +15,14 @@ import {
 } from 'lucide-react';
 import type { TeamMember, Project, Task } from '../types';
 import { PriorityBadge, StatusBadge } from './Badges';
+import { DeleteTeamMemberModal } from './modals/DeleteTeamMemberModal';
 
 interface TeamViewProps {
   team: TeamMember[];
   projects: Project[];
   onOpenNewMember: () => void;
   onEditMember: (member: TeamMember) => void;
-  onDeleteMember: (memberId: string) => Promise<void>;
+  onDeleteMember: (memberId: string, reassignToId?: string) => Promise<void>;
   onSelectProject: (projectId: string) => void;
 }
 
@@ -35,6 +36,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(team[0]?.id || null);
+  const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
 
   const filteredTeam = team.filter((m) => {
     if (!search) return true;
@@ -253,11 +255,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
                     <span>Edit</span>
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`Remove team member "${activeMember.name}" from company records?`)) {
-                        onDeleteMember(activeMember.id);
-                      }
-                    }}
+                    onClick={() => setMemberToDelete(activeMember)}
                     className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition"
                     title="Delete Member"
                   >
@@ -399,6 +397,21 @@ export const TeamView: React.FC<TeamViewProps> = ({
           )}
         </div>
       </div>
+      <DeleteTeamMemberModal
+        isOpen={Boolean(memberToDelete)}
+        onClose={() => setMemberToDelete(null)}
+        onConfirm={async (memberId, reassignToId) => {
+          await onDeleteMember(memberId, reassignToId);
+          if (selectedMemberId === memberId) {
+            const remaining = team.filter((m) => m.id !== memberId);
+            setSelectedMemberId(remaining[0]?.id || null);
+          }
+          setMemberToDelete(null);
+        }}
+        member={memberToDelete}
+        allTeam={team}
+        projects={projects}
+      />
     </div>
   );
 };

@@ -77,14 +77,53 @@ export const api = {
     return data;
   },
 
-  async checkSession(): Promise<{ authenticated: boolean; company: CompanySettings }> {
+  async setupInitialPassword(password: string): Promise<{ success: boolean; token: string; company: CompanySettings }> {
+    const res = await fetch('/api/auth/setup-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to configure password' }));
+      throw new Error(err.error || 'Failed to configure password');
+    }
+    const data = await res.json();
+    if (data.token) {
+      setStoredToken(data.token);
+    }
+    return data;
+  },
+
+  async getAuthStatus(): Promise<{
+    isPasswordSet: boolean;
+    company_name: string;
+    logo_url?: string;
+    company_logo?: string;
+    tagline?: string;
+  }> {
+    try {
+      const res = await fetch('/api/auth/status');
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      isPasswordSet: false,
+      company_name: 'Falcon Engineering & Construction',
+    };
+  },
+
+  async checkSession(): Promise<{ authenticated: boolean; isPasswordSet?: boolean; company: CompanySettings }> {
     return apiFetch('/api/auth/session');
   },
 
-  async checkAuth(): Promise<{ authenticated: boolean; company?: CompanySettings }> {
+  async checkAuth(): Promise<{ authenticated: boolean; isPasswordSet?: boolean; company?: CompanySettings }> {
     try {
       const res = await this.checkSession();
-      return { authenticated: res.authenticated, company: res.company };
+      return { authenticated: res.authenticated, isPasswordSet: res.isPasswordSet, company: res.company };
     } catch {
       return { authenticated: false };
     }
@@ -107,7 +146,13 @@ export const api = {
   },
 
   // Company Settings
-  async getPublicCompany(): Promise<{ company_name: string; logo_url?: string; company_logo?: string; tagline?: string }> {
+  async getPublicCompany(): Promise<{
+    company_name: string;
+    logo_url?: string;
+    company_logo?: string;
+    tagline?: string;
+    isPasswordSet?: boolean;
+  }> {
     try {
       const res = await fetch('/api/company/public');
       if (res.ok) {
@@ -116,7 +161,7 @@ export const api = {
     } catch {
       // fallback
     }
-    return { company_name: 'Studio Archvibe & Associates' };
+    return { company_name: 'Falcon Engineering & Construction', isPasswordSet: false };
   },
 
   async getCompany(): Promise<CompanySettings> {
@@ -205,6 +250,18 @@ export const api = {
     });
   },
 
+  async archiveProject(id: string): Promise<Project> {
+    return apiFetch(`/api/projects/${id}/archive`, {
+      method: 'POST',
+    });
+  },
+
+  async restoreProject(id: string): Promise<Project> {
+    return apiFetch(`/api/projects/${id}/restore`, {
+      method: 'POST',
+    });
+  },
+
   // Clients
   async getClients(): Promise<Client[]> {
     return apiFetch('/api/clients');
@@ -249,9 +306,10 @@ export const api = {
     });
   },
 
-  async deleteTeamMember(id: string): Promise<{ success: boolean }> {
+  async deleteTeamMember(id: string, reassignTo?: string): Promise<{ success: boolean }> {
     return apiFetch(`/api/team/${id}`, {
       method: 'DELETE',
+      body: JSON.stringify({ reassignTo }),
     });
   },
 

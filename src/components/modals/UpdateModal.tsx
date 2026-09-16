@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { X, History } from 'lucide-react';
-import type { TeamMember, ActivityType } from '../../types';
+import type { TeamMember, ActivityType, Project } from '../../types';
 
 interface UpdateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
-  projectId: string;
+  projectId?: string;
+  projects?: Project[];
   team: TeamMember[];
 }
 
@@ -29,9 +30,13 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  projectId,
+  projectId: defaultProjectId,
+  projects = [],
   team,
 }) => {
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    defaultProjectId || (projects[0]?.id || '')
+  );
   const [updateType, setUpdateType] = useState<ActivityType>('Site Visit');
   const [activityDate, setActivityDate] = useState('2026-09-15');
   const [personId, setPersonId] = useState(team[0]?.id || '');
@@ -41,6 +46,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setSelectedProjectId(defaultProjectId || (projects[0]?.id || ''));
       setUpdateType('Site Visit');
       setActivityDate('2026-09-15');
       setPersonId(team[0]?.id || '');
@@ -48,12 +54,18 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
       setError(null);
       setSaving(false);
     }
-  }, [isOpen, projectId, team]);
+  }, [isOpen, defaultProjectId, projects, team]);
 
   if (!isOpen) return null;
 
+  const currentProject = projects.find((p) => p.id === selectedProjectId);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedProjectId) {
+      setError('Please select a project');
+      return;
+    }
     if (!description.trim()) {
       setError('Description is required');
       return;
@@ -63,7 +75,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
     setError(null);
     try {
       await onSave({
-        project_id: projectId,
+        project_id: selectedProjectId,
         activity_type: updateType,
         activity_date: activityDate,
         team_member_id: personId || undefined,
@@ -105,6 +117,30 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+          {defaultProjectId && !projects.length ? null : (
+            <div>
+              <label className="block font-semibold text-zinc-700 mb-1">Project *</label>
+              {defaultProjectId && currentProject ? (
+                <div className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900 font-medium">
+                  {currentProject.project_name} {currentProject.client?.name ? `(${currentProject.client.name})` : ''}
+                </div>
+              ) : (
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
+                  required
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.project_name} ({p.client?.name || 'Client'})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold text-zinc-700 mb-1">Update Type *</label>
@@ -112,7 +148,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                 id="update-type-select"
                 value={updateType}
                 onChange={(e) => setUpdateType(e.target.value as ActivityType)}
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               >
                 {UPDATE_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -130,18 +166,18 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                 value={activityDate}
                 onChange={(e) => setActivityDate(e.target.value)}
                 required
-                className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               />
             </div>
           </div>
 
           <div>
-            <label className="block font-semibold text-zinc-700 mb-1">Person / Team Member</label>
+            <label className="block font-semibold text-zinc-700 mb-1">Logged By</label>
             <select
-              id="update-person-select"
+              id="update-member-select"
               value={personId}
               onChange={(e) => setPersonId(e.target.value)}
-              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
             >
               {team.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -152,15 +188,15 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-semibold text-zinc-700 mb-1">Description *</label>
+            <label className="block font-semibold text-zinc-700 mb-1">Update Details *</label>
             <textarea
-              id="update-desc-input"
+              id="update-notes-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              placeholder="e.g. Client approved revised floor plan and signed off on false ceiling electrical drawing."
+              rows={3}
+              placeholder="e.g. Completed site level survey and verified pile foundations with structural consultant."
               required
-              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+              className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
             />
           </div>
 
@@ -176,7 +212,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               id="save-update-btn"
               type="submit"
               disabled={saving}
-              className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-semibold shadow transition cursor-pointer disabled:opacity-50"
+              className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-semibold shadow-xs transition cursor-pointer disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save Update'}
             </button>
