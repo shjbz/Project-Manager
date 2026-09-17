@@ -1,9 +1,16 @@
-# Apache / LiteSpeed configuration for Vite Single Page Application on Hostinger
+# Apache / LiteSpeed configuration for Hostinger MySQL Backend + Vite SPA
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+
+  # Route /api/* requests to the native Hostinger MySQL PHP API backend
+  RewriteCond %{REQUEST_URI} ^/api/ [NC]
+  RewriteRule ^api/(.*)$ /api/index.php [L,QSA]
+
+  # Route SPA frontend requests
   RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
 </IfModule>
+

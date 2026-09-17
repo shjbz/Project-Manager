@@ -8,17 +8,12 @@ import type {
   Activity,
   DashboardStats,
 } from './types';
-import { localDb } from './localDb';
-import { INITIAL_COMPANY_SETTINGS } from './initialData';
 
 const TOKEN_KEY = 'company_auth_token';
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/+$/, '');
 
-// Static hosting mode detector (e.g. Hostinger Vite static deployment where no Express backend is running)
-let isStaticMode: boolean | null = null;
-
 export function isRunningInStaticMode(): boolean {
-  return isStaticMode === true;
+  return false;
 }
 
 export function getStoredToken(): string | null {
@@ -31,28 +26,6 @@ export function setStoredToken(token: string) {
 
 export function clearStoredToken() {
   localStorage.removeItem(TOKEN_KEY);
-}
-
-async function checkBackendAvailable(): Promise<boolean> {
-  if (isStaticMode !== null) return !isStaticMode;
-  try {
-    const res = await fetch(`${API_BASE}/api/auth/status`, { credentials: 'include' });
-    const contentType = res.headers.get('content-type') || '';
-    if (!res.ok || res.status === 404 || contentType.includes('text/html')) {
-      isStaticMode = true;
-      return false;
-    }
-    const data = await res.json();
-    if (typeof data?.isPasswordSet !== 'boolean') {
-      isStaticMode = true;
-      return false;
-    }
-    isStaticMode = false;
-    return true;
-  } catch {
-    isStaticMode = true;
-    return false;
-  }
 }
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -74,14 +47,16 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       credentials: 'include',
     });
   } catch (err: any) {
-    isStaticMode = true;
-    throw err;
+    throw new Error(
+      `Unable to reach server API at ${endpoint}. Please verify your Hostinger MySQL server is running. (${err?.message || err})`
+    );
   }
 
   const contentType = res.headers.get('content-type') || '';
   if (res.status === 404 || contentType.includes('text/html')) {
-    isStaticMode = true;
-    throw new Error('NOT_FOUND_STATIC_MODE');
+    throw new Error(
+      `API endpoint ${endpoint} not found (404). Please ensure backend routing to Hostinger MySQL is configured.`
+    );
   }
 
   if (res.status === 401) {
@@ -105,6 +80,17 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
 export const api = {
   // --- Auth ---
+  async checkAuth(): Promise<{ authenticated: boolean; company?: CompanySettings }> {
+    const token = getStoredToken();
+    if (!token) return { authenticated: false };
+    try {
+      const company = await this.getCompanySettings();
+      return { authenticated: true, company };
+    } catch {
+      return { authenticated: false };
+    }
+  },
+
   async getAuthStatus(): Promise<{
     isPasswordSet: boolean;
     company_name: string;
@@ -112,615 +98,274 @@ export const api = {
     company_logo?: string;
     tagline?: string;
   }> {
-    const hasBackend = await checkBackendAvailable();
-    if (!hasBackend) {
-      return localDb.getAuthStatus();
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/status`, { credentials: 'include' });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.status === 404 || contentType.includes('text/html')) {
-        isStaticMode = true;
-        return localDb.getAuthStatus();
-      }
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      isStaticMode = true;
-      return localDb.getAuthStatus();
-    }
-    return localDb.getAuthStatus();
+    return await apiFetch('/api/auth/status');
   },
 
   async setupInitialPassword(password: string): Promise<{ success: boolean; token: string; company: CompanySettings }> {
-    const hasBackend = await checkBackendAvailable();
-    if (!hasBackend) {
-      return localDb.setupInitialPassword(password);
+    const res = await apiFetch<{ success: boolean; token: string; company: CompanySettings }>('/api/auth/setup-password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+    if (res.token) {
+      setStoredToken(res.token);
     }
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/setup-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ password }),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.status === 404 || contentType.includes('text/html')) {
-        isStaticMode = true;
-        return localDb.setupInitialPassword(password);
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to configure password' }));
-        throw new Error(err.error || 'Failed to configure password');
-      }
-      const data = await res.json();
-      if (data.token) {
-        setStoredToken(data.token);
-      }
-      return data;
-    } catch (err: any) {
-      if (isStaticMode || err.message === 'NOT_FOUND_STATIC_MODE' || err.name === 'TypeError') {
-        isStaticMode = true;
-        return localDb.setupInitialPassword(password);
-      }
-      throw err;
-    }
+    return res;
   },
 
   async login(password: string): Promise<{ success: boolean; token: string; company: CompanySettings }> {
-    const hasBackend = await checkBackendAvailable();
-    if (!hasBackend) {
-      return localDb.login(password);
+    const res = await apiFetch<{ success: boolean; token: string; company: CompanySettings }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+    if (res.token) {
+      setStoredToken(res.token);
     }
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ password }),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.status === 404 || contentType.includes('text/html')) {
-        isStaticMode = true;
-        return localDb.login(password);
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Login failed' }));
-        throw new Error(err.error || 'Login failed');
-      }
-      const data = await res.json();
-      if (data.token) {
-        setStoredToken(data.token);
-      }
-      return data;
-    } catch (err: any) {
-      if (isStaticMode || err.message === 'NOT_FOUND_STATIC_MODE' || err.name === 'TypeError') {
-        isStaticMode = true;
-        return localDb.login(password);
-      }
-      throw err;
-    }
-  },
-
-  async checkSession(): Promise<{ authenticated: boolean; isPasswordSet?: boolean; company: CompanySettings }> {
-    const hasBackend = await checkBackendAvailable();
-    if (!hasBackend) {
-      const res = await localDb.checkSession();
-      return {
-        authenticated: res.authenticated,
-        isPasswordSet: res.isPasswordSet,
-        company: res.company || INITIAL_COMPANY_SETTINGS,
-      };
-    }
-    try {
-      return await apiFetch(`${API_BASE}/api/auth/session`);
-    } catch (e: any) {
-      if (isStaticMode || e.message === 'NOT_FOUND_STATIC_MODE') {
-        const res = await localDb.checkSession();
-        return {
-          authenticated: res.authenticated,
-          isPasswordSet: res.isPasswordSet,
-          company: res.company || INITIAL_COMPANY_SETTINGS,
-        };
-      }
-      throw e;
-    }
-  },
-
-  async checkAuth(): Promise<{ authenticated: boolean; isPasswordSet?: boolean; company?: CompanySettings }> {
-    try {
-      const res = await this.checkSession();
-      return { authenticated: res.authenticated, isPasswordSet: res.isPasswordSet, company: res.company };
-    } catch {
-      return { authenticated: false };
-    }
+    return res;
   },
 
   async logout(): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      clearStoredToken();
-      return localDb.logout();
-    }
+    clearStoredToken();
     try {
-      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {
       // ignore
-    } finally {
-      clearStoredToken();
     }
     return { success: true };
   },
 
-  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-    if (isStaticMode) {
-      return localDb.changePassword(currentPassword, newPassword);
-    }
-    try {
-      return await apiFetch('/api/auth/change-password', {
-        method: 'POST',
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-    } catch (err: any) {
-      if (isStaticMode) {
-        return localDb.changePassword(currentPassword, newPassword);
-      }
-      throw err;
-    }
-  },
-
   // --- Company Settings ---
-  async getPublicCompany(): Promise<{
-    company_name: string;
-    logo_url?: string;
-    company_logo?: string;
-    tagline?: string;
-    isPasswordSet?: boolean;
-  }> {
-    if (isStaticMode) {
-      const comp = await localDb.getCompany();
-      const status = await localDb.getAuthStatus();
-      return {
-        company_name: comp.company_name,
-        company_logo: comp.company_logo,
-        logo_url: comp.logo_url,
-        tagline: comp.tagline,
-        isPasswordSet: status.isPasswordSet,
-      };
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/company/public`);
-      const contentType = res.headers.get('content-type') || '';
-      if (res.status === 404 || contentType.includes('text/html')) {
-        isStaticMode = true;
-        return this.getPublicCompany();
-      }
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      isStaticMode = true;
-      return this.getPublicCompany();
-    }
-    return { company_name: 'Falcon Engineering & Construction', isPasswordSet: false };
+  async getCompanySettings(): Promise<CompanySettings> {
+    return await apiFetch('/api/company');
   },
 
   async getCompany(): Promise<CompanySettings> {
-    if (isStaticMode) {
-      return localDb.getCompany();
-    }
-    try {
-      return await apiFetch('/api/company');
-    } catch (err: any) {
-      if (isStaticMode) return localDb.getCompany();
-      throw err;
-    }
+    return this.getCompanySettings();
   },
 
-  async updateCompany(settings: Partial<CompanySettings>): Promise<CompanySettings> {
-    if (isStaticMode) {
-      return localDb.updateCompany(settings);
-    }
-    try {
-      return await apiFetch('/api/company', {
-        method: 'PUT',
-        body: JSON.stringify(settings),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateCompany(settings);
-      throw err;
-    }
+  async updateCompany(updates: Partial<CompanySettings>): Promise<CompanySettings> {
+    return await apiFetch('/api/company', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return await apiFetch('/api/company/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
   },
 
   // --- Dashboard ---
-  async getDashboard(): Promise<any> {
-    if (isStaticMode) {
-      return localDb.getDashboard();
+  async getDashboard(): Promise<{
+    stats: DashboardStats;
+    followUpsRequiringAttention: FollowUp[];
+    upcomingTasks: Task[];
+    overdueItems: any[];
+    teamWorkload: any[];
+  }> {
+    const res = await apiFetch<any>('/api/dashboard');
+    if (res && res.stats) {
+      return res;
     }
-    try {
-      return await apiFetch('/api/dashboard');
-    } catch (err: any) {
-      if (isStaticMode) return localDb.getDashboard();
-      throw err;
-    }
+    return {
+      stats: res || ({} as any),
+      followUpsRequiringAttention: [],
+      upcomingTasks: [],
+      overdueItems: [],
+      teamWorkload: [],
+    };
+  },
+
+  async getDashboardStats(): Promise<DashboardStats> {
+    const data = await this.getDashboard();
+    return data.stats;
   },
 
   // --- Projects ---
-  async getProjects(params: any = {}): Promise<Project[]> {
-    if (isStaticMode) {
-      let projs = await localDb.getProjects();
-      if (params.search) {
-        const q = params.search.toLowerCase();
-        projs = projs.filter(
-          (p) =>
-            p.project_name.toLowerCase().includes(q) ||
-            p.location?.toLowerCase().includes(q) ||
-            p.description?.toLowerCase().includes(q)
-        );
-      }
-      if (params.status) projs = projs.filter((p) => p.status === params.status);
-      if (params.priority) projs = projs.filter((p) => p.priority === params.priority);
-      return projs;
-    }
-    try {
-      const query = new URLSearchParams();
-      Object.entries(params).forEach(([key, val]) => {
-        if (val) query.set(key, String(val));
-      });
-      return await apiFetch(`/api/projects?${query.toString()}`);
-    } catch (err: any) {
-      if (isStaticMode) return this.getProjects(params);
-      throw err;
-    }
+  async getProjects(filters: {
+    status?: string;
+    priority?: string;
+    leadId?: string;
+    clientId?: string;
+    search?: string;
+  } = {}): Promise<Project[]> {
+    const params = new URLSearchParams();
+    if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+    if (filters.priority && filters.priority !== 'all') params.set('priority', filters.priority);
+    if (filters.leadId && filters.leadId !== 'all') params.set('leadId', filters.leadId);
+    if (filters.clientId && filters.clientId !== 'all') params.set('clientId', filters.clientId);
+    if (filters.search) params.set('search', filters.search);
+
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return await apiFetch(`/api/projects${query}`);
+  },
+
+  async getArchivedProjects(): Promise<Project[]> {
+    return await apiFetch('/api/projects/archived');
   },
 
   async getProject(id: string): Promise<Project> {
-    if (isStaticMode) {
-      const p = await localDb.getProjectById(id);
-      if (!p) throw new Error('Project not found');
-      return p;
-    }
-    try {
-      return await apiFetch(`/api/projects/${id}`);
-    } catch (err: any) {
-      if (isStaticMode) return this.getProject(id);
-      throw err;
-    }
+    return await apiFetch(`/api/projects/${id}`);
   },
 
-  async createProject(data: any): Promise<Project> {
-    if (isStaticMode) {
-      return localDb.createProject(data);
-    }
-    try {
-      return await apiFetch('/api/projects', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createProject(data);
-      throw err;
-    }
+  async createProject(data: Partial<Project>): Promise<Project> {
+    return await apiFetch('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
-  async updateProject(id: string, data: any): Promise<Project> {
-    if (isStaticMode) {
-      return localDb.updateProject(id, data);
-    }
-    try {
-      return await apiFetch(`/api/projects/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateProject(id, data);
-      throw err;
-    }
+  async updateProject(id: string, data: Partial<Project>): Promise<Project> {
+    return await apiFetch(`/api/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async deleteProject(id: string): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      return localDb.deleteProject(id);
-    }
-    try {
-      return await apiFetch(`/api/projects/${id}`, {
-        method: 'DELETE',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.deleteProject(id);
-      throw err;
-    }
+    return await apiFetch(`/api/projects/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   async archiveProject(id: string): Promise<Project> {
-    if (isStaticMode) {
-      return localDb.archiveProject(id);
-    }
-    try {
-      return await apiFetch(`/api/projects/${id}/archive`, {
-        method: 'POST',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.archiveProject(id);
-      throw err;
-    }
+    return await apiFetch(`/api/projects/${id}/archive`, {
+      method: 'PUT',
+    });
+  },
+
+  async unarchiveProject(id: string): Promise<Project> {
+    return await apiFetch(`/api/projects/${id}/unarchive`, {
+      method: 'PUT',
+    });
   },
 
   async restoreProject(id: string): Promise<Project> {
-    if (isStaticMode) {
-      return localDb.restoreProject(id);
-    }
-    try {
-      return await apiFetch(`/api/projects/${id}/restore`, {
-        method: 'POST',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.restoreProject(id);
-      throw err;
-    }
+    return this.unarchiveProject(id);
   },
 
   // --- Clients ---
   async getClients(): Promise<Client[]> {
-    if (isStaticMode) {
-      return localDb.getClients();
-    }
-    try {
-      return await apiFetch('/api/clients');
-    } catch (err: any) {
-      if (isStaticMode) return localDb.getClients();
-      throw err;
-    }
+    return await apiFetch('/api/clients');
+  },
+
+  async getClient(id: string): Promise<Client> {
+    return await apiFetch(`/api/clients/${id}`);
   },
 
   async createClient(data: Partial<Client>): Promise<Client> {
-    if (isStaticMode) {
-      return localDb.createClient(data);
-    }
-    try {
-      return await apiFetch('/api/clients', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createClient(data);
-      throw err;
-    }
+    return await apiFetch('/api/clients', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async updateClient(id: string, data: Partial<Client>): Promise<Client> {
-    if (isStaticMode) {
-      return localDb.updateClient(id, data);
-    }
-    try {
-      return await apiFetch(`/api/clients/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateClient(id, data);
-      throw err;
-    }
+    return await apiFetch(`/api/clients/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async deleteClient(id: string): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      return localDb.deleteClient(id);
-    }
-    try {
-      return await apiFetch(`/api/clients/${id}`, {
-        method: 'DELETE',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.deleteClient(id);
-      throw err;
-    }
+    return await apiFetch(`/api/clients/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // --- Team Members ---
   async getTeam(): Promise<TeamMember[]> {
-    if (isStaticMode) {
-      return localDb.getTeam();
-    }
-    try {
-      return await apiFetch('/api/team');
-    } catch (err: any) {
-      if (isStaticMode) return localDb.getTeam();
-      throw err;
-    }
+    return await apiFetch('/api/team');
   },
 
   async createTeamMember(data: Partial<TeamMember>): Promise<TeamMember> {
-    if (isStaticMode) {
-      return localDb.createTeamMember(data);
-    }
-    try {
-      return await apiFetch('/api/team', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createTeamMember(data);
-      throw err;
-    }
+    return await apiFetch('/api/team', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async updateTeamMember(id: string, data: Partial<TeamMember>): Promise<TeamMember> {
-    if (isStaticMode) {
-      return localDb.updateTeamMember(id, data);
-    }
-    try {
-      return await apiFetch(`/api/team/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateTeamMember(id, data);
-      throw err;
-    }
+    return await apiFetch(`/api/team/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async deleteTeamMember(id: string, reassignTo?: string): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      return localDb.deleteTeamMember(id, reassignTo);
-    }
-    try {
-      return await apiFetch(`/api/team/${id}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ reassignTo }),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.deleteTeamMember(id, reassignTo);
-      throw err;
-    }
+    return await apiFetch(`/api/team/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ reassignTo }),
+    });
   },
 
   // --- Tasks ---
   async createTask(data: Partial<Task>): Promise<Task> {
-    if (isStaticMode) {
-      return localDb.createTask(data);
-    }
-    try {
-      return await apiFetch('/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createTask(data);
-      throw err;
-    }
+    return await apiFetch('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async updateTask(id: string, data: Partial<Task>): Promise<Task> {
-    if (isStaticMode) {
-      return localDb.updateTask(id, data);
-    }
-    try {
-      return await apiFetch(`/api/tasks/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateTask(id, data);
-      throw err;
-    }
+    return await apiFetch(`/api/tasks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async deleteTask(id: string): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      return localDb.deleteTask(id);
-    }
-    try {
-      return await apiFetch(`/api/tasks/${id}`, {
-        method: 'DELETE',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.deleteTask(id);
-      throw err;
-    }
+    return await apiFetch(`/api/tasks/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // --- Follow-ups ---
   async createFollowUp(data: Partial<FollowUp>): Promise<FollowUp> {
-    if (isStaticMode) {
-      return localDb.createFollowUp(data);
-    }
-    try {
-      return await apiFetch('/api/followups', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createFollowUp(data);
-      throw err;
-    }
+    return await apiFetch('/api/followups', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async updateFollowUp(id: string, data: Partial<FollowUp>): Promise<FollowUp> {
-    if (isStaticMode) {
-      return localDb.updateFollowUp(id, data);
-    }
-    try {
-      return await apiFetch(`/api/followups/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.updateFollowUp(id, data);
-      throw err;
-    }
+    return await apiFetch(`/api/followups/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   async deleteFollowUp(id: string): Promise<{ success: boolean }> {
-    if (isStaticMode) {
-      return localDb.deleteFollowUp(id);
-    }
-    try {
-      return await apiFetch(`/api/followups/${id}`, {
-        method: 'DELETE',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.deleteFollowUp(id);
-      throw err;
-    }
+    return await apiFetch(`/api/followups/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // --- Activities / Updates ---
   async createActivity(data: Partial<Activity>): Promise<Activity> {
-    if (isStaticMode) {
-      return localDb.createActivity(data);
-    }
-    try {
-      return await apiFetch('/api/activities', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.createActivity(data);
-      throw err;
-    }
+    return await apiFetch('/api/activities', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   // --- Backup & Restore ---
   async exportDatabase(): Promise<any> {
-    if (isStaticMode) {
-      return localDb.exportBackup();
-    }
-    try {
-      return await apiFetch('/api/backup');
-    } catch (err: any) {
-      if (isStaticMode) return localDb.exportBackup();
-      throw err;
-    }
+    return await apiFetch('/api/backup');
   },
 
   async importDatabase(data: any): Promise<{ success: boolean; message: string }> {
-    if (isStaticMode) {
-      return localDb.importBackup(data);
-    }
-    try {
-      return await apiFetch('/api/backup/restore', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.importBackup(data);
-      throw err;
-    }
+    return await apiFetch('/api/backup/restore', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 
   async resetDatabase(): Promise<{ success: boolean; message: string }> {
-    if (isStaticMode) {
-      return localDb.resetDatabase();
-    }
-    try {
-      return await apiFetch('/api/backup/reset', {
-        method: 'POST',
-      });
-    } catch (err: any) {
-      if (isStaticMode) return localDb.resetDatabase();
-      throw err;
-    }
+    return await apiFetch('/api/backup/reset', {
+      method: 'POST',
+    });
   },
 
   async restoreBackup(data: any): Promise<{ success: boolean; message: string }> {
@@ -728,37 +373,32 @@ export const api = {
   },
 
   async getDbStatus(): Promise<{
-    engine: 'mongodb' | 'file' | 'browser_local';
-    uriConfigured: boolean;
+    engine: 'mysql' | 'file';
     connected: boolean;
-    databaseName: string | null;
+    database: string;
+    user: string;
+    host: string;
+    port: number;
     error: string | null;
     whitelistHint?: string;
   }> {
-    if (isStaticMode) {
-      return {
-        engine: 'browser_local',
-        uriConfigured: false,
-        connected: true,
-        databaseName: 'browser_localStorage',
-        error: null,
-      };
-    }
     try {
       const res = await fetch(`${API_BASE}/api/db/status`);
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && !contentType.includes('text/html')) {
+      if (res.ok) {
         return await res.json();
       }
     } catch {
       // ignore
     }
     return {
-      engine: 'file',
-      uriConfigured: false,
-      connected: true,
-      databaseName: 'local_file_db',
-      error: null,
+      engine: 'mysql',
+      connected: false,
+      database: 'u345742528_manage_falcon',
+      user: 'u345742528_shuzaul',
+      host: 'localhost',
+      port: 3306,
+      error: 'Cannot reach backend server',
+      whitelistHint: '82.180.143.163',
     };
   },
 };

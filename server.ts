@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.js';
-import { mongo } from './server/mongo.js';
+import { mysqlDb } from './server/mysql.js';
 
 interface SessionRecord {
   createdAt: number;
@@ -89,15 +89,22 @@ async function startServer() {
     next();
   });
 
-  // Initialize MongoDB Atlas connection & synchronization
-  await db.initMongo();
+  // Initialize Hostinger MySQL connection & synchronization (background)
+  db.initMySQL().catch((err: any) => console.warn('[MySQL] Background init caught:', err?.message || err));
 
   // Database Connection Health & Status Endpoint
   app.get('/api/db/status', (_req, res) => {
-    const status = mongo.getStatus();
+    const mysqlStatus = mysqlDb.getStatus();
+
     res.json({
-      engine: status.connected ? 'mongodb' : 'file',
-      ...status,
+      engine: mysqlStatus.connected ? 'mysql' : 'file',
+      connected: mysqlStatus.connected,
+      mysql: mysqlStatus,
+      database: mysqlStatus.database,
+      user: mysqlStatus.user,
+      host: mysqlStatus.host,
+      port: mysqlStatus.port,
+      error: mysqlStatus.error,
       whitelistHint: '82.180.143.163',
     });
   });
@@ -286,6 +293,11 @@ async function startServer() {
 
   // --- Dashboard Data (Spec #10 - #13, #31 - #34, #46) ---
   app.get('/api/dashboard', requireAuth, (req, res) => {
+    const dashboardData = db.getDashboardStats();
+    res.json(dashboardData);
+  });
+
+  app.get('/api/dashboard/stats', requireAuth, (req, res) => {
     const dashboardData = db.getDashboardStats();
     res.json(dashboardData);
   });

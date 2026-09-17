@@ -6,11 +6,11 @@
     "company_phone": "+880 1711-234567",
     "company_email": "contact@falconeng.com",
     "currency_symbol": "৳",
-    "is_password_set": false,
-    "password_hash": "",
-    "salt": "",
+    "is_password_set": true,
+    "password_hash": "529cb66260bdbb3165ae3ac0cbf0cd537766fa5a7f842a82071f75c99f750af94c8950a0dd232f9caa6ba5211bbb1f29eb035bbb48c4d85475bf9e35270eaaff",
+    "salt": "d22da5400105eb41340bed402ff397bf",
     "created_at": "2026-01-01T00:00:00.000Z",
-    "updated_at": "2026-09-16T00:00:00.000Z"
+    "updated_at": "2026-09-17T07:15:37.055Z"
   },
   "team_members": [
     {

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { mongo } from './mongo.js';
+import { mysqlDb } from './mysql.js';
 import type {
   CompanySettings,
   TeamMember,
@@ -540,41 +540,41 @@ export class Database {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   }
 
-  private mongoSyncTimer: NodeJS.Timeout | null = null;
+  private mysqlSyncTimer: NodeJS.Timeout | null = null;
 
-  public async initMongo(): Promise<void> {
+  public async initMySQL(): Promise<void> {
     try {
-      const ok = await mongo.initConnection();
+      const ok = await mysqlDb.init();
       if (ok) {
-        const mongoData = await mongo.loadAll();
-        if (mongoData && mongoData.settings) {
-          console.log('[MongoDB] Loaded existing data from MongoDB Atlas');
-          this.data = mongoData;
+        const mysqlData = await mysqlDb.loadAll();
+        if (mysqlData && mysqlData.settings) {
+          console.log('[MySQL] Loaded existing data from Hostinger MySQL');
+          this.data = mysqlData;
           this.saveDataDirect(this.data);
         } else {
-          console.log('[MongoDB] Initializing MongoDB collections with workspace data...');
-          await mongo.seedAll(this.data);
+          console.log('[MySQL] Seeding Hostinger MySQL tables with workspace data...');
+          await mysqlDb.seedAll(this.data);
         }
       }
     } catch (err) {
-      console.error('[MongoDB] initMongo error:', err);
+      console.error('[MySQL] initMySQL error:', err);
     }
   }
 
-  private scheduleMongoSync() {
-    if (this.mongoSyncTimer) {
-      clearTimeout(this.mongoSyncTimer);
+  private scheduleMySQLSync() {
+    if (this.mysqlSyncTimer) {
+      clearTimeout(this.mysqlSyncTimer);
     }
-    this.mongoSyncTimer = setTimeout(() => {
-      mongo.seedAll(this.data).catch((err) => {
-        console.error('[MongoDB] Background sync error:', err);
+    this.mysqlSyncTimer = setTimeout(() => {
+      mysqlDb.seedAll(this.data).catch((err) => {
+        console.error('[MySQL] Background sync error:', err);
       });
     }, 150);
   }
 
   public save() {
     this.saveDataDirect(this.data);
-    this.scheduleMongoSync();
+    this.scheduleMySQLSync();
   }
 
   public getRaw(): DatabaseSchema {
