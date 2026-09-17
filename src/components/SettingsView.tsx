@@ -61,7 +61,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Import / Export state
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [resetting, setResetting] = useState(false);
 
   // Database engine & Hostinger MySQL status
   const [dbStatus, setDbStatus] = useState<{
@@ -109,14 +108,55 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setCompanyLogo(reader.result);
-        setBrandMsg(null);
+        const dataUrl = reader.result;
+        // If SVG, keep as is
+        if (file.type.includes('svg')) {
+          setCompanyLogo(dataUrl);
+          setBrandMsg(null);
+          return;
+        }
+        // For other images, resize with canvas to max 400px width/height
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 400;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/png', 0.9);
+            setCompanyLogo(compressed);
+          } else {
+            setCompanyLogo(dataUrl);
+          }
+          setBrandMsg(null);
+        };
+        img.onerror = () => {
+          setCompanyLogo(dataUrl);
+          setBrandMsg(null);
+        };
+        img.src = dataUrl;
       }
     };
     reader.onerror = () => {
       setBrandMsg({ type: 'error', text: 'Failed to read image file' });
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSaveBrandSettings = async (e: React.FormEvent) => {
@@ -218,33 +258,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const handleResetToDemo = async () => {
-    if (!confirm('Reset all company data back to the clean demonstration seed state? Any modifications will be replaced.')) {
-      return;
-    }
-
-    setResetting(true);
-    try {
-      await api.resetDatabase();
-      await onRefreshAllData();
-      alert('Database successfully reset to initial demo state.');
-    } catch (err: any) {
-      alert('Reset failed: ' + err.message);
-    } finally {
-      setResetting(false);
-    }
-  };
-
   return (
     <div id="settings-view-container" className="max-w-4xl space-y-8 pb-16">
       {/* Header */}
       <div className="border-b border-zinc-200 pb-5">
-        <div className="text-[11px] uppercase tracking-widest font-bold text-zinc-400">
-          System Administration
-        </div>
-        <h1 className="text-2xl font-bold text-zinc-950 tracking-tight mt-0.5">Workspace Settings</h1>
+        <h1 className="text-2xl font-bold text-zinc-950 tracking-tight">Settings</h1>
         <p className="text-xs text-zinc-500 mt-1">
-          Configure company identity, branding logo, access security, and persistent backups.
+          Configure company identity, branding logo, access security, and persistent database backups.
         </p>
       </div>
 
@@ -678,27 +698,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="text-[10px] text-zinc-500 uppercase tracking-wide">MySQL User</div>
             <div className="text-xs font-mono font-bold text-zinc-800 mt-0.5 truncate" title="u345742528_shuzaul">u345742528_shuzaul</div>
           </div>
-        </div>
-      </div>
-
-      {/* Section 4: Demo Reset Utility */}
-      <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-zinc-900">Restore Demonstration Data</h2>
-            <p className="text-xs text-zinc-500">
-              Reset database to initial sample projects (Gulshan Residence, Banani Corporate Office, etc.).
-            </p>
-          </div>
-          <button
-            id="settings-reset-demo-btn"
-            onClick={handleResetToDemo}
-            disabled={resetting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-700 text-xs font-semibold rounded-lg border border-zinc-300 transition cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${resetting ? 'animate-spin' : ''}`} />
-            <span>{resetting ? 'Resetting...' : 'Reset to Demo Seed'}</span>
-          </button>
         </div>
       </div>
     </div>

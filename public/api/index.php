@@ -69,7 +69,7 @@ function ensureTables($pdo) {
             designation VARCHAR(255),
             email VARCHAR(255),
             phone VARCHAR(100),
-            avatar TEXT,
+            avatar MEDIUMTEXT,
             notes TEXT,
             status VARCHAR(32) DEFAULT 'active',
             created_at VARCHAR(64),
@@ -154,6 +154,17 @@ function ensureTables($pdo) {
         $pdo->exec($q);
     }
 
+    // Defensively migrate column lengths for large base64 avatars and branding logos
+    try {
+        $pdo->exec("ALTER TABLE team_members MODIFY COLUMN avatar MEDIUMTEXT");
+    } catch (Exception $e) {}
+    try {
+        $pdo->exec("ALTER TABLE company_settings MODIFY COLUMN company_logo MEDIUMTEXT");
+    } catch (Exception $e) {}
+    try {
+        $pdo->exec("ALTER TABLE company_settings MODIFY COLUMN logo_url MEDIUMTEXT");
+    } catch (Exception $e) {}
+
     // Check if initial settings exist
     $stmt = $pdo->query("SELECT id FROM company_settings WHERE id = 'company-main' LIMIT 1");
     if (!$stmt->fetch()) {
@@ -182,6 +193,115 @@ function hashPassword($password) {
 
 function verifyPassword($password, $hash) {
     return password_verify($password, $hash);
+}
+
+/**
+ * Deeply enriches an array of projects with resolved clients, project leads,
+ * team members, tasks, follow-ups, activities, and computed health metrics.
+ */
+function enrichProjects($projects, $pdo) {
+    if (empty($projects)) return [];
+
+    // Map clients
+    $clientsStmt = $pdo->query("SELECT * FROM clients");
+    $clientMap = [];
+    foreach ($clientsStmt->fetchAll() as $c) {
+        $clientMap[$c['id']] = $c;
+    }
+
+    // Map team members
+    $teamStmt = $pdo->query("SELECT * FROM team_members");
+    $teamMap = [];
+    foreach ($teamStmt->fetchAll() as $t) {
+        $teamMap[$t['id']] = $t;
+    }
+
+    // Map tasks by project
+    $tasksStmt = $pdo->query("SELECT * FROM tasks ORDER BY due_date ASC, created_at ASC");
+    $tasksByProj = [];
+    foreach ($tasksStmt->fetchAll() as $t) {
+        $t['assigned_member'] = !empty($t['assigned_to']) ? ($teamMap[$t['assigned_to']] ?? null) : null;
+        $tasksByProj[$t['project_id']][] = $t;
+    }
+
+    // Map follow-ups by project
+    $fStmt = $pdo->query("SELECT * FROM follow_ups ORDER BY follow_up_date ASC, created_at ASC");
+    $followUpsByProj = [];
+    foreach ($fStmt->fetchAll() as $f) {
+        $f['creator_member'] = !empty($f['created_by']) ? ($teamMap[$f['created_by']] ?? null) : null;
+        $followUpsByProj[$f['project_id']][] = $f;
+    }
+
+    // Map activities by project
+    $aStmt = $pdo->query("SELECT * FROM activities ORDER BY created_at DESC");
+    $activitiesByProj = [];
+    foreach ($aStmt->fetchAll() as $a) {
+        $a['team_member'] = !empty($a['team_member_id']) ? ($teamMap[$a['team_member_id']] ?? null) : null;
+        $activitiesByProj[$a['project_id']][] = $a;
+    }
+
+    $today = date('Y-m-d');
+
+    foreach ($projects as &$p) {
+        $p['is_archived'] = (bool)$p['is_archived'];
+        if (isset($p['team_member_ids']) && is_string($p['team_member_ids'])) {
+            $p['team_member_ids'] = json_decode($p['team_member_ids'], true) ?: [];
+        } elseif (!isset($p['team_member_ids']) || !is_array($p['team_member_ids'])) {
+            $p['team_member_ids'] = [];
+        }
+
+        // 1. Resolve client
+        $p['client'] = !empty($p['client_id']) ? ($clientMap[$p['client_id']] ?? null) : null;
+
+        // 2. Resolve project lead
+        $p['project_lead'] = !empty($p['project_lead_id']) ? ($teamMap[$p['project_lead_id']] ?? null) : null;
+
+        // 3. Resolve team members
+        $p['team_members'] = [];
+        foreach ($p['team_member_ids'] as $mid) {
+            if (isset($teamMap[$mid])) {
+                $p['team_members'][] = $teamMap[$mid];
+            }
+        }
+
+        // 4. Resolve tasks, follow-ups, activities
+        $p['tasks'] = $tasksByProj[$p['id']] ?? [];
+        $p['follow_ups'] = $followUpsByProj[$p['id']] ?? [];
+        $p['activities'] = $activitiesByProj[$p['id']] ?? [];
+
+        // 5. Computed health & next actions
+        $pendingTasks = array_values(array_filter($p['tasks'], fn($t) => $t['status'] !== 'completed'));
+        $pendingFollowUps = array_values(array_filter($p['follow_ups'], fn($f) => $f['status'] !== 'completed' && $f['status'] !== 'cancelled'));
+
+        $p['is_overdue'] = false;
+        foreach ($pendingTasks as $t) {
+            if (!empty($t['due_date']) && $t['due_date'] < $today) {
+                $p['is_overdue'] = true;
+                break;
+            }
+        }
+        if (!$p['is_overdue']) {
+            foreach ($pendingFollowUps as $f) {
+                if (!empty($f['follow_up_date']) && $f['follow_up_date'] < $today) {
+                    $p['is_overdue'] = true;
+                    break;
+                }
+            }
+        }
+
+        $p['health_status'] = $p['is_overdue'] ? 'critical' : ($p['priority'] === 'urgent' ? 'warning' : 'healthy');
+        $p['next_task'] = count($pendingTasks) > 0 ? $pendingTasks[0] : null;
+        $p['next_follow_up'] = count($pendingFollowUps) > 0 ? $pendingFollowUps[0] : null;
+        $p['last_follow_up'] = count($p['follow_ups']) > 0 ? end($p['follow_ups']) : null;
+    }
+
+    return $projects;
+}
+
+function enrichSingleProject($project, $pdo) {
+    if (!$project) return null;
+    $res = enrichProjects([$project], $pdo);
+    return $res[0] ?? null;
 }
 
 // Request path parsing
@@ -339,41 +459,54 @@ try {
 
     // 7. GET dashboard & dashboard/stats
     if ($endpoint === 'dashboard' || $endpoint === 'dashboard/stats') {
+        $today = date('Y-m-d');
         $activeProjects = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE status = 'active' AND is_archived = 0")->fetchColumn();
         $urgentProjects = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE priority = 'urgent' AND is_archived = 0")->fetchColumn();
         $totalProjects = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE is_archived = 0")->fetchColumn();
         $dueSoon = (int)$pdo->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed'")->fetchColumn();
-        $overdue = (int)$pdo->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed' AND due_date < CURDATE()")->fetchColumn();
+        $overdueTasks = (int)$pdo->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed' AND due_date < '$today'")->fetchColumn();
+        $followUpPending = (int)$pdo->query("SELECT COUNT(*) FROM follow_ups WHERE status != 'completed' AND status != 'cancelled'")->fetchColumn();
+        $completedThisMonth = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE status = 'completed' AND is_archived = 0")->fetchColumn();
+        $atRisk = (int)$pdo->query("SELECT COUNT(*) FROM projects WHERE status = 'at_risk' AND is_archived = 0")->fetchColumn();
 
         $stats = [
             'activeProjects' => $activeProjects,
-            'followUpPending' => 0,
+            'followUpPending' => $followUpPending,
             'dueSoon' => $dueSoon,
-            'overdue' => $overdue,
+            'overdue' => $overdueTasks,
             'urgentProjects' => $urgentProjects,
-            'completedThisMonth' => 0,
+            'completedThisMonth' => $completedThisMonth,
             'totalProjects' => $totalProjects,
             'statusBreakdown' => [
                 'onTrack' => $activeProjects,
-                'followUpNeeded' => 0,
-                'atRisk' => 0,
-                'overdue' => $overdue,
-                'completed' => 0
+                'followUpNeeded' => $followUpPending,
+                'atRisk' => $atRisk,
+                'overdue' => $overdueTasks,
+                'completed' => $completedThisMonth
             ]
         ];
 
         if ($endpoint === 'dashboard') {
             $stmt = $pdo->query("SELECT * FROM projects WHERE is_archived = 0 ORDER BY created_at DESC LIMIT 6");
             $projects = $stmt->fetchAll();
-            foreach ($projects as &$p) {
-                if (isset($p['team_member_ids']) && is_string($p['team_member_ids'])) {
-                    $p['team_member_ids'] = json_decode($p['team_member_ids'], true) ?: [];
-                }
+            $enrichedProjects = enrichProjects($projects, $pdo);
+
+            // Fetch recent activities with team member
+            $actStmt = $pdo->query("SELECT * FROM activities ORDER BY created_at DESC LIMIT 10");
+            $recentActs = $actStmt->fetchAll();
+            $teamStmt = $pdo->query("SELECT * FROM team_members");
+            $teamMap = [];
+            foreach ($teamStmt->fetchAll() as $t) {
+                $teamMap[$t['id']] = $t;
             }
+            foreach ($recentActs as &$act) {
+                $act['team_member'] = !empty($act['team_member_id']) ? ($teamMap[$act['team_member_id']] ?? null) : null;
+            }
+
             echo json_encode([
                 'stats' => $stats,
-                'recentProjects' => $projects,
-                'activities' => []
+                'recentProjects' => $enrichedProjects,
+                'activities' => $recentActs
             ]);
         } else {
             echo json_encode($stats);
@@ -386,11 +519,7 @@ try {
         if ($method === 'GET') {
             $stmt = $pdo->query("SELECT * FROM projects WHERE is_archived = 0 ORDER BY created_at DESC");
             $rows = $stmt->fetchAll();
-            foreach ($rows as &$r) {
-                $r['is_archived'] = (bool)$r['is_archived'];
-                $r['team_member_ids'] = json_decode($r['team_member_ids'] ?? '[]', true) ?: [];
-            }
-            echo json_encode($rows);
+            echo json_encode(enrichProjects($rows, $pdo));
             exit;
         }
 
@@ -398,6 +527,11 @@ try {
             $input = getJsonInput();
             $id = 'proj-' . bin2hex(random_bytes(6));
             $now = gmdate('Y-m-d\TH:i:s\Z');
+            $teamMemberIds = $input['team_member_ids'] ?? [];
+            if (!empty($input['project_lead_id']) && !in_array($input['project_lead_id'], $teamMemberIds)) {
+                $teamMemberIds[] = $input['project_lead_id'];
+            }
+
             $stmt = $pdo->prepare("INSERT INTO projects (id, project_name, project_type, location, description, client_id, project_lead_id, team_member_ids, priority, status, start_date, expected_completion_date, actual_completion_date, is_archived, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)");
             $stmt->execute([
@@ -408,7 +542,7 @@ try {
                 $input['description'] ?? null,
                 $input['client_id'] ?? '',
                 $input['project_lead_id'] ?? '',
-                json_encode($input['team_member_ids'] ?? []),
+                json_encode($teamMemberIds),
                 $input['priority'] ?? 'standard',
                 $input['status'] ?? 'active',
                 $input['start_date'] ?? date('Y-m-d'),
@@ -418,10 +552,55 @@ try {
                 $now
             ]);
 
-            $r = $pdo->query("SELECT * FROM projects WHERE id = '$id'")->fetch();
-            $r['is_archived'] = (bool)$r['is_archived'];
-            $r['team_member_ids'] = json_decode($r['team_member_ids'] ?? '[]', true) ?: [];
-            echo json_encode($r);
+            // Initial Activity Log
+            $actId = 'act-' . bin2hex(random_bytes(6));
+            $pName = $input['project_name'] ?? 'New Project';
+            $pPriority = strtoupper($input['priority'] ?? 'standard');
+            $pdo->prepare("INSERT INTO activities (id, project_id, team_member_id, activity_type, description, activity_date, created_at)
+                VALUES (?, ?, ?, 'General Update', ?, ?, ?)")->execute([
+                    $actId,
+                    $id,
+                    $input['project_lead_id'] ?? null,
+                    "Project \"$pName\" initialized with priority $pPriority.",
+                    date('Y-m-d'),
+                    $now
+                ]);
+
+            // Optional initial task
+            if (!empty($input['initial_task']) && !empty($input['initial_task']['title'])) {
+                $tId = 'tsk-' . bin2hex(random_bytes(6));
+                $pdo->prepare("INSERT INTO tasks (id, project_id, title, description, assigned_to, priority, due_date, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)")->execute([
+                        $tId,
+                        $id,
+                        $input['initial_task']['title'],
+                        $input['initial_task']['description'] ?? '',
+                        $input['initial_task']['assigned_to'] ?? ($input['project_lead_id'] ?? null),
+                        $input['initial_task']['priority'] ?? ($input['priority'] ?? 'standard'),
+                        $input['initial_task']['due_date'] ?? date('Y-m-d', strtotime('+5 days')),
+                        $now,
+                        $now
+                    ]);
+            }
+
+            // Optional initial follow-up
+            if (!empty($input['initial_follow_up']) && (!empty($input['initial_follow_up']['date']) || !empty($input['initial_follow_up']['follow_up_date']))) {
+                $fuId = 'fu-' . bin2hex(random_bytes(6));
+                $fDate = $input['initial_follow_up']['date'] ?? ($input['initial_follow_up']['follow_up_date'] ?? date('Y-m-d', strtotime('+3 days')));
+                $pdo->prepare("INSERT INTO follow_ups (id, project_id, follow_up_date, method, notes, created_by, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)")->execute([
+                        $fuId,
+                        $id,
+                        $fDate,
+                        $input['initial_follow_up']['method'] ?? 'Phone',
+                        $input['initial_follow_up']['notes'] ?? 'Initial project kick-off follow-up',
+                        $input['initial_follow_up']['created_by'] ?? ($input['project_lead_id'] ?? null),
+                        $now
+                    ]);
+            }
+
+            $createdRow = $pdo->query("SELECT * FROM projects WHERE id = '$id'")->fetch();
+            echo json_encode(enrichSingleProject($createdRow, $pdo));
             exit;
         }
     }
@@ -430,11 +609,7 @@ try {
     if ($endpoint === 'projects/archived') {
         $stmt = $pdo->query("SELECT * FROM projects WHERE is_archived = 1 ORDER BY updated_at DESC");
         $rows = $stmt->fetchAll();
-        foreach ($rows as &$r) {
-            $r['is_archived'] = (bool)$r['is_archived'];
-            $r['team_member_ids'] = json_decode($r['team_member_ids'] ?? '[]', true) ?: [];
-        }
-        echo json_encode($rows);
+        echo json_encode(enrichProjects($rows, $pdo));
         exit;
     }
 
@@ -451,23 +626,7 @@ try {
                 echo json_encode(['error' => 'Project not found']);
                 exit;
             }
-            $r['is_archived'] = (bool)$r['is_archived'];
-            $r['team_member_ids'] = json_decode($r['team_member_ids'] ?? '[]', true) ?: [];
-
-            // Fetch tasks, followups, activities
-            $tasks = $pdo->prepare("SELECT * FROM tasks WHERE project_id = ? ORDER BY due_date ASC");
-            $tasks->execute([$projId]);
-            $r['tasks'] = $tasks->fetchAll();
-
-            $followups = $pdo->prepare("SELECT * FROM follow_ups WHERE project_id = ? ORDER BY follow_up_date ASC");
-            $followups->execute([$projId]);
-            $r['follow_ups'] = $followups->fetchAll();
-
-            $activities = $pdo->prepare("SELECT * FROM activities WHERE project_id = ? ORDER BY created_at DESC");
-            $activities->execute([$projId]);
-            $r['activities'] = $activities->fetchAll();
-
-            echo json_encode($r);
+            echo json_encode(enrichSingleProject($r, $pdo));
             exit;
         }
 
@@ -506,10 +665,8 @@ try {
                 ':id' => $projId
             ]);
 
-            $r = $pdo->query("SELECT * FROM projects WHERE id = '$projId'")->fetch();
-            $r['is_archived'] = (bool)$r['is_archived'];
-            $r['team_member_ids'] = json_decode($r['team_member_ids'] ?? '[]', true) ?: [];
-            echo json_encode($r);
+            $updatedRow = $pdo->query("SELECT * FROM projects WHERE id = '$projId'")->fetch();
+            echo json_encode(enrichSingleProject($updatedRow, $pdo));
             exit;
         }
 
@@ -762,6 +919,38 @@ try {
 
     if (preg_match('#^followups/([a-zA-Z0-9_\-]+)$#', $endpoint, $matches)) {
         $id = $matches[1];
+        if ($method === 'PUT') {
+            $input = getJsonInput();
+            $stmt = $pdo->prepare("UPDATE follow_ups SET
+                follow_up_date = COALESCE(:fdate, follow_up_date),
+                method = COALESCE(:method, method),
+                notes = COALESCE(:notes, notes),
+                status = COALESCE(:status, status)
+                WHERE id = :id");
+            $stmt->execute([
+                ':fdate' => $input['follow_up_date'] ?? null,
+                ':method' => $input['method'] ?? null,
+                ':notes' => $input['notes'] ?? null,
+                ':status' => $input['status'] ?? null,
+                ':id' => $id
+            ]);
+            $updated = $pdo->query("SELECT * FROM follow_ups WHERE id = '$id'")->fetch();
+            if (($input['status'] ?? '') === 'completed') {
+                $now = gmdate('Y-m-d\TH:i:s\Z');
+                $pdo->prepare("INSERT INTO activities (id, project_id, team_member_id, activity_type, description, activity_date, created_at)
+                    VALUES (?, ?, ?, 'Follow-up Completed', ?, ?, ?)")->execute([
+                        'act-' . bin2hex(random_bytes(6)),
+                        $updated['project_id'],
+                        $updated['created_by'] ?? null,
+                        "Follow-up completed via " . ($updated['method'] ?? 'Phone'),
+                        date('Y-m-d'),
+                        $now
+                    ]);
+            }
+            echo json_encode($updated);
+            exit;
+        }
+
         if ($method === 'DELETE') {
             $pdo->prepare("DELETE FROM follow_ups WHERE id = ?")->execute([$id]);
             echo json_encode(['success' => true]);

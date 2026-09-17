@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from './api';
 import type { Project, TeamMember, Client, DashboardStats, Task, FollowUp, CompanySettings } from './types';
 import { AuthGate } from './components/AuthGate';
@@ -163,16 +163,81 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
-  // Currently selected project
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
+  // Dedicated detailed selected project state
+  const [detailedProject, setDetailedProject] = useState<Project | null>(null);
+
+  // Fetch full details whenever a project is selected
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setDetailedProject(null);
+      return;
+    }
+    let isMounted = true;
+    api.getProject(selectedProjectId)
+      .then((proj) => {
+        if (isMounted && proj) {
+          setDetailedProject(proj);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch detailed project:', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedProjectId]);
+
+  const refreshCurrentProject = useCallback(async (projId?: string) => {
+    const targetId = projId || selectedProjectId;
+    if (!targetId) return;
+    try {
+      const fresh = await api.getProject(targetId);
+      if (fresh) {
+        setDetailedProject(fresh);
+        setProjects((prev) => prev.map((p) => (p.id === fresh.id ? fresh : p)));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [selectedProjectId]);
+
+  // Currently selected project with guaranteed relation resolution
+  const selectedProject = useMemo(() => {
+    if (!selectedProjectId) return null;
+    const base = (detailedProject && detailedProject.id === selectedProjectId)
+      ? detailedProject
+      : (projects.find((p) => p.id === selectedProjectId) || null);
+    if (!base) return null;
+
+    const resolvedClient = base.client || clients.find((c) => c.id === base.client_id) || null;
+    const resolvedLead = base.project_lead || team.find((t) => t.id === base.project_lead_id) || null;
+    const memberIds = Array.isArray(base.team_member_ids) ? base.team_member_ids : [];
+    const resolvedMembers = (base.team_members && base.team_members.length > 0)
+      ? base.team_members
+      : team.filter((t) => memberIds.includes(t.id));
+
+    return {
+      ...base,
+      client: resolvedClient,
+      project_lead: resolvedLead,
+      team_members: resolvedMembers,
+      tasks: base.tasks || [],
+      follow_ups: base.follow_ups || [],
+      activities: base.activities || [],
+    };
+  }, [detailedProject, projects, selectedProjectId, clients, team]);
 
   // Project CRUD Actions
   const handleSaveProject = async (projectData: Partial<Project>) => {
     if (editingProject) {
-      await api.updateProject(editingProject.id, projectData);
+      const updated = await api.updateProject(editingProject.id, projectData);
+      if (updated) {
+        setDetailedProject(updated);
+      }
     } else {
       const created = await api.createProject(projectData);
       setSelectedProjectId(created.id);
+      setDetailedProject(created);
     }
     await loadAllData();
   };
@@ -180,23 +245,30 @@ export default function App() {
   const handleDeleteProject = async (id: string) => {
     await api.deleteProject(id);
     setSelectedProjectId(null);
+    setDetailedProject(null);
     await loadAllData();
   };
 
   const handleArchiveProject = async (id: string) => {
     await api.archiveProject(id);
     await loadAllData();
+    await refreshCurrentProject(id);
   };
 
   const handleRestoreProject = async (id: string) => {
     await api.restoreProject(id);
     await loadAllData();
+    await refreshCurrentProject(id);
   };
 
   const handleQuickUpdateProject = async (updates: Partial<Project>) => {
     if (!selectedProjectId) return;
-    await api.updateProject(selectedProjectId, updates);
+    const updated = await api.updateProject(selectedProjectId, updates);
+    if (updated) {
+      setDetailedProject(updated);
+    }
     await loadAllData();
+    await refreshCurrentProject();
   };
 
   // Task Actions
@@ -208,16 +280,19 @@ export default function App() {
     }
     setEditingTask(null);
     await loadAllData();
+    await refreshCurrentProject(taskData.project_id || selectedProjectId);
   };
 
   const handleDeleteTask = async (taskId: string) => {
     await api.deleteTask(taskId);
     await loadAllData();
+    await refreshCurrentProject();
   };
 
   const handleUpdateTaskStatus = async (taskId: string, newStatus: Task['status']) => {
     await api.updateTask(taskId, { status: newStatus });
     await loadAllData();
+    await refreshCurrentProject();
   };
 
   // Follow-up Actions
@@ -229,22 +304,26 @@ export default function App() {
     }
     setEditingFollowUp(null);
     await loadAllData();
+    await refreshCurrentProject(fuData.project_id || selectedProjectId);
   };
 
   const handleDeleteFollowUp = async (fuId: string) => {
     await api.deleteFollowUp(fuId);
     await loadAllData();
+    await refreshCurrentProject();
   };
 
   const handleUpdateFollowUpStatus = async (fuId: string, newStatus: FollowUp['status']) => {
     await api.updateFollowUp(fuId, { status: newStatus });
     await loadAllData();
+    await refreshCurrentProject();
   };
 
   // Update / Activity Actions
   const handleSaveUpdate = async (updateData: any) => {
     await api.createActivity(updateData);
     await loadAllData();
+    await refreshCurrentProject(updateData.project_id || selectedProjectId);
   };
 
   // Client CRUD Actions
@@ -504,6 +583,11 @@ export default function App() {
           clients={clients}
           team={team}
           initialData={editingProject}
+          onQuickAddClient={async (clientData) => {
+            const created = await api.createClient(clientData);
+            await loadAllData();
+            return created;
+          }}
         />
 
         <FollowUpModal

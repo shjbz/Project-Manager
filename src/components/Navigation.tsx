@@ -191,7 +191,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           }`}
         >
           <Settings className="w-4 h-4" />
-          <span>Company Settings</span>
+          <span>Settings</span>
         </button>
 
         {onLogout && (

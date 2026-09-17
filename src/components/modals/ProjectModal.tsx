@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
+import { api } from '../../api';
 import type { Project, Client, TeamMember, Priority, ProjectStatus, ProjectType } from '../../types';
 
 interface ProjectModalProps {
@@ -50,12 +51,21 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [initialTaskTitle, setInitialTaskTitle] = useState('');
   const [initialTaskDue, setInitialTaskDue] = useState('2026-09-20');
   const [initialTaskAssignee, setInitialTaskAssignee] = useState('');
+  const [initialFollowUpNotes, setInitialFollowUpNotes] = useState('');
+  const [initialFollowUpDate, setInitialFollowUpDate] = useState('2026-09-18');
+  const [initialFollowUpMethod, setInitialFollowUpMethod] = useState<'Phone' | 'In-Person' | 'WhatsApp' | 'Email'>('Phone');
 
   // Quick inline add client toggle
   const [showNewClientForm, setShowNewClientForm] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientCompany, setNewClientCompany] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
+  const [localClients, setLocalClients] = useState<Client[]>(clients);
+
+  useEffect(() => {
+    setLocalClients(clients);
+  }, [clients]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +105,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setInitialTaskTitle('');
         setInitialTaskDue('2026-09-20');
         setInitialTaskAssignee('');
+        setInitialFollowUpNotes('');
+        setInitialFollowUpDate('2026-09-18');
+        setInitialFollowUpMethod('Phone');
       }
       setShowNewClientForm(false);
       setNewClientName('');
@@ -117,17 +130,29 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   };
 
   const handleQuickAddClient = async () => {
-    if (!newClientName || !newClientPhone) {
+    if (!newClientName.trim() || !newClientPhone.trim()) {
       setError('Client Name and Phone are required');
       return;
     }
+    setQuickAdding(true);
+    setError(null);
     try {
+      const payload: Partial<Client> = {
+        name: newClientName.trim(),
+        company: newClientCompany.trim() || undefined,
+        phone: newClientPhone.trim(),
+        status: 'active',
+      };
+      let created: Client;
       if (onQuickAddClient) {
-        const created = await onQuickAddClient({
-          name: newClientName,
-          company: newClientCompany,
-          phone: newClientPhone,
-          status: 'active',
+        created = await onQuickAddClient(payload);
+      } else {
+        created = await api.createClient(payload);
+      }
+      if (created && created.id) {
+        setLocalClients((prev) => {
+          if (prev.some((c) => c.id === created.id)) return prev;
+          return [created, ...prev];
         });
         setClientId(created.id);
         setShowNewClientForm(false);
@@ -137,6 +162,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       }
     } catch (err: any) {
       setError(err.message || 'Failed to add client');
+    } finally {
+      setQuickAdding(false);
     }
   };
 
@@ -179,6 +206,16 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
           due_date: initialTaskDue,
           assigned_to: initialTaskAssignee || projectLeadId,
           priority,
+        };
+      }
+
+      if (!isEditing && initialFollowUpNotes.trim()) {
+        payload.initial_follow_up = {
+          date: initialFollowUpDate,
+          follow_up_date: initialFollowUpDate,
+          method: initialFollowUpMethod,
+          notes: initialFollowUpNotes.trim(),
+          created_by: projectLeadId,
         };
       }
 
@@ -311,7 +348,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   <option value="" disabled>
                     -- Select Existing Client --
                   </option>
-                  {clients.map((c) => (
+                  {localClients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} {c.company ? `(${c.company})` : ''} — {c.phone}
                     </option>
@@ -346,10 +383,19 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                 </div>
                 <button
                   type="button"
+                  id="btn-save-select-client"
                   onClick={handleQuickAddClient}
-                  className="px-3 py-1.5 bg-zinc-800 text-white rounded text-xs font-medium cursor-pointer"
+                  disabled={quickAdding}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs font-medium cursor-pointer transition"
                 >
-                  Save & Select Client
+                  {quickAdding ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Client...</span>
+                    </>
+                  ) : (
+                    <span>Save & Select Client</span>
+                  )}
                 </button>
               </div>
             )}
@@ -515,6 +561,51 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                         {m.name}
                       </option>
                     ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Initial Next Follow-up (Optional) - For new projects */}
+          {!isEditing && (
+            <div className="space-y-3 pt-3 border-t border-zinc-200">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                6. Immediate Next Follow-up (Optional)
+              </div>
+
+              <div>
+                <label className="block font-semibold text-zinc-700 mb-1">Follow-up Notes / Agenda</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Call client regarding layout approval and timeline"
+                  value={initialFollowUpNotes}
+                  onChange={(e) => setInitialFollowUpNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-semibold text-zinc-700 mb-1">Follow-up Date</label>
+                  <input
+                    type="date"
+                    value={initialFollowUpDate}
+                    onChange={(e) => setInitialFollowUpDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-zinc-700 mb-1">Method</label>
+                  <select
+                    value={initialFollowUpMethod}
+                    onChange={(e) => setInitialFollowUpMethod(e.target.value as any)}
+                    className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                  >
+                    <option value="Phone">Phone</option>
+                    <option value="In-Person">In-Person</option>
+                    <option value="WhatsApp">WhatsApp</option>
+                    <option value="Email">Email</option>
                   </select>
                 </div>
               </div>

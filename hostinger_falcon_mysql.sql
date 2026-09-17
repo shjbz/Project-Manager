@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `team_members` (
   `designation` varchar(255) DEFAULT NULL,
   `email` varchar(255) DEFAULT NULL,
   `phone` varchar(100) DEFAULT NULL,
-  `avatar` text DEFAULT NULL,
+  `avatar` mediumtext DEFAULT NULL,
   `notes` text DEFAULT NULL,
   `status` varchar(32) DEFAULT 'active',
   `created_at` varchar(64) DEFAULT NULL,

@@ -566,7 +566,7 @@ export class Database {
       clearTimeout(this.mysqlSyncTimer);
     }
     this.mysqlSyncTimer = setTimeout(() => {
-      mysqlDb.seedAll(this.data).catch((err) => {
+      mysqlDb.syncAll(this.data).catch((err) => {
         console.error('[MySQL] Background sync error:', err);
       });
     }, 150);

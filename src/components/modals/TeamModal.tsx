@@ -65,8 +65,8 @@ export const TeamModal: React.FC<TeamModalProps> = ({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image size exceeds 5MB limit');
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image size exceeds 10MB limit');
       return;
     }
 
@@ -75,7 +75,40 @@ export const TeamModal: React.FC<TeamModalProps> = ({
     reader.onload = (event) => {
       const result = event.target?.result as string;
       if (result) {
-        setAvatar(result);
+        // Compress and resize image using offscreen canvas to ~25KB
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 320;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            setAvatar(compressed);
+          } else {
+            setAvatar(result);
+          }
+        };
+        img.onerror = () => {
+          setAvatar(result);
+        };
+        img.src = result;
       }
     };
     reader.readAsDataURL(file);

@@ -130,7 +130,7 @@ class MySQLService {
         designation VARCHAR(255),
         email VARCHAR(255),
         phone VARCHAR(100),
-        avatar TEXT,
+        avatar MEDIUMTEXT,
         notes TEXT,
         status VARCHAR(32) DEFAULT 'active',
         created_at VARCHAR(64),
@@ -208,6 +208,18 @@ class MySQLService {
     for (const q of queries) {
       await this.pool.query(q);
     }
+
+    // Migrate column types if needed for large images/avatars
+    try {
+      await this.pool.query('ALTER TABLE team_members MODIFY COLUMN avatar MEDIUMTEXT');
+    } catch (_) {}
+    try {
+      await this.pool.query('ALTER TABLE company_settings MODIFY COLUMN company_logo MEDIUMTEXT');
+    } catch (_) {}
+    try {
+      await this.pool.query('ALTER TABLE company_settings MODIFY COLUMN logo_url MEDIUMTEXT');
+    } catch (_) {}
+
     console.log('[MySQL] All Hostinger MySQL tables verified / created successfully');
   }
 
@@ -480,6 +492,38 @@ class MySQLService {
       console.log('[MySQL] Synced all database records to Hostinger MySQL');
     } catch (err) {
       console.error('[MySQL] Error writing records to Hostinger MySQL:', err);
+    }
+  }
+
+  /**
+   * Safe incremental synchronization using upserts (does NOT delete existing data).
+   */
+  public async syncAll(schema: DatabaseSchema): Promise<void> {
+    if (!this.pool || !this.isConnected) return;
+    try {
+      if (schema.settings) {
+        await this.syncSettings(schema.settings);
+      }
+      for (const m of schema.team_members || []) {
+        await this.syncTeamMember(m);
+      }
+      for (const c of schema.clients || []) {
+        await this.syncClient(c);
+      }
+      for (const p of schema.projects || []) {
+        await this.syncProject(p);
+      }
+      for (const t of schema.tasks || []) {
+        await this.syncTask(t);
+      }
+      for (const f of schema.follow_ups || []) {
+        await this.syncFollowUp(f);
+      }
+      for (const a of schema.activities || []) {
+        await this.syncActivity(a);
+      }
+    } catch (err) {
+      console.error('[MySQL] Safe syncAll error:', err);
     }
   }
 
