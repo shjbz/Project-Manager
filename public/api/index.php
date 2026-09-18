@@ -147,6 +147,19 @@ function ensureTables($pdo) {
             token VARCHAR(128) PRIMARY KEY,
             created_at INT,
             last_active INT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+
+        "CREATE TABLE IF NOT EXISTS gantt_charts (
+            id VARCHAR(64) PRIMARY KEY,
+            project_id VARCHAR(64) NOT NULL,
+            project_name VARCHAR(255),
+            title VARCHAR(255) NOT NULL,
+            start_date VARCHAR(64),
+            end_date VARCHAR(64),
+            notes TEXT,
+            tasks LONGTEXT,
+            created_at VARCHAR(64),
+            updated_at VARCHAR(64)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
     ];
 
@@ -173,6 +186,80 @@ function ensureTables($pdo) {
             VALUES ('company-main', 'Falcon Engineering & Construction', 'House 42, Road 11, Block D, Banani, Dhaka-1213', '+880 1711-000000', 'operations@falconeng.com', 'Centralized Workspace & Operations Command', '৳', 0, :c, :u)");
         $insert->execute([':c' => $now, ':u' => $now]);
     }
+
+    // Check if initial gantt charts exist
+    try {
+        $ganttCount = (int)$pdo->query("SELECT COUNT(*) FROM gantt_charts")->fetchColumn();
+        if ($ganttCount === 0) {
+            $now = gmdate('Y-m-d\TH:i:s\Z');
+            $initialTasks = json_encode([
+                [
+                    'id' => 'gtask-1',
+                    'title' => 'Structural Survey & Soil Investigation',
+                    'start_date' => '2026-09-01',
+                    'end_date' => '2026-09-12',
+                    'progress' => 100,
+                    'status' => 'completed',
+                    'assigned_to' => 'team-1',
+                    'color' => '#10b981'
+                ],
+                [
+                    'id' => 'gtask-2',
+                    'title' => 'Sub-structure Piling & Deep Excavation',
+                    'start_date' => '2026-09-13',
+                    'end_date' => '2026-09-28',
+                    'progress' => 65,
+                    'status' => 'in_progress',
+                    'assigned_to' => 'team-2',
+                    'color' => '#3b82f6'
+                ],
+                [
+                    'id' => 'gtask-3',
+                    'title' => 'Raft Foundation Casting & Waterproofing',
+                    'start_date' => '2026-09-29',
+                    'end_date' => '2026-10-15',
+                    'progress' => 20,
+                    'status' => 'pending',
+                    'assigned_to' => 'team-3',
+                    'color' => '#f59e0b'
+                ],
+                [
+                    'id' => 'gtask-4',
+                    'title' => 'Superstructure Column & Slab Casting',
+                    'start_date' => '2026-10-16',
+                    'end_date' => '2026-10-31',
+                    'progress' => 0,
+                    'status' => 'pending',
+                    'assigned_to' => 'team-4',
+                    'color' => '#8b5cf6'
+                ],
+                [
+                    'id' => 'gtask-5',
+                    'title' => 'Final Inspection, Quality Audit & Handover',
+                    'start_date' => '2026-11-01',
+                    'end_date' => '2026-11-15',
+                    'progress' => 0,
+                    'status' => 'pending',
+                    'assigned_to' => 'team-1',
+                    'color' => '#ef4444'
+                ]
+            ]);
+            $ins = $pdo->prepare("INSERT INTO gantt_charts (id, project_id, project_name, title, start_date, end_date, notes, tasks, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $ins->execute([
+                'gantt-1',
+                'proj-1',
+                'Banani Commercial Tower',
+                'Master Construction Timeline',
+                '2026-09-01',
+                '2026-11-15',
+                'Operational timeline persisted in Hostinger MySQL.',
+                $initialTasks,
+                $now,
+                $now
+            ]);
+        }
+    } catch (Exception $e) {}
 }
 
 ensureTables($pdo);
@@ -1096,7 +1183,118 @@ try {
         exit;
     }
 
-    // 17. Backup & Restore
+    // 17. Gantt Charts
+    if (($endpoint === 'gantt' || $endpoint === 'gantt-charts') && $method === 'GET') {
+        $projectId = $_GET['projectId'] ?? null;
+        if ($projectId) {
+            $stmt = $pdo->prepare("SELECT * FROM gantt_charts WHERE project_id = ? ORDER BY created_at DESC");
+            $stmt->execute([$projectId]);
+            $charts = $stmt->fetchAll();
+        } else {
+            $charts = $pdo->query("SELECT * FROM gantt_charts ORDER BY created_at DESC")->fetchAll();
+        }
+        foreach ($charts as &$c) {
+            $c['tasks'] = json_decode($c['tasks'] ?? '[]', true) ?: [];
+        }
+        echo json_encode($charts);
+        exit;
+    }
+
+    if (($endpoint === 'gantt' || $endpoint === 'gantt-charts') && $method === 'POST') {
+        $input = getJsonInput();
+        $id = $input['id'] ?? ('gantt-' . round(microtime(true) * 1000));
+        $projectId = $input['project_id'] ?? '';
+        
+        $projectName = $input['project_name'] ?? '';
+        if (empty($projectName) && !empty($projectId)) {
+            $pStmt = $pdo->prepare("SELECT project_name FROM projects WHERE id = ?");
+            $pStmt->execute([$projectId]);
+            $projectName = $pStmt->fetchColumn() ?: 'Project';
+        }
+
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $tasksJson = json_encode($input['tasks'] ?? []);
+
+        $stmt = $pdo->prepare("INSERT INTO gantt_charts (id, project_id, project_name, title, start_date, end_date, notes, tasks, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $id,
+            $projectId,
+            $projectName,
+            $input['title'] ?? 'Untitled Gantt Chart',
+            $input['start_date'] ?? date('Y-m-d'),
+            $input['end_date'] ?? date('Y-m-d', strtotime('+30 days')),
+            $input['notes'] ?? '',
+            $tasksJson,
+            $now,
+            $now
+        ]);
+
+        $row = $pdo->query("SELECT * FROM gantt_charts WHERE id = '$id'")->fetch();
+        if ($row) {
+            $row['tasks'] = json_decode($row['tasks'] ?? '[]', true) ?: [];
+        }
+        http_response_code(201);
+        echo json_encode($row);
+        exit;
+    }
+
+    if (preg_match('#^(gantt|gantt-charts)/([a-zA-Z0-9_\-]+)$#', $endpoint, $matches) || preg_match('#^projects/([a-zA-Z0-9_\-]+)/gantt$#', $endpoint, $matches)) {
+        $id = $matches[2] ?? $matches[1];
+        if ($method === 'GET') {
+            $stmt = $pdo->prepare("SELECT * FROM gantt_charts WHERE id = ? OR project_id = ? LIMIT 1");
+            $stmt->execute([$id, $id]);
+            $chart = $stmt->fetch();
+            if (!$chart) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Gantt chart not found']);
+                exit;
+            }
+            $chart['tasks'] = json_decode($chart['tasks'] ?? '[]', true) ?: [];
+            echo json_encode($chart);
+            exit;
+        }
+
+        if ($method === 'PUT') {
+            $input = getJsonInput();
+            $existing = $pdo->prepare("SELECT * FROM gantt_charts WHERE id = ?");
+            $existing->execute([$id]);
+            $current = $existing->fetch();
+            if (!$current) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Gantt chart not found']);
+                exit;
+            }
+
+            $title = $input['title'] ?? $current['title'];
+            $projectId = $input['project_id'] ?? $current['project_id'];
+            $projectName = $input['project_name'] ?? $current['project_name'];
+            $startDate = $input['start_date'] ?? $current['start_date'];
+            $endDate = $input['end_date'] ?? $current['end_date'];
+            $notes = array_key_exists('notes', $input) ? $input['notes'] : $current['notes'];
+            $tasks = array_key_exists('tasks', $input) ? json_encode($input['tasks']) : $current['tasks'];
+            $now = gmdate('Y-m-d\TH:i:s\Z');
+
+            $stmt = $pdo->prepare("UPDATE gantt_charts SET title = ?, project_id = ?, project_name = ?, start_date = ?, end_date = ?, notes = ?, tasks = ?, updated_at = ? WHERE id = ?");
+            $stmt->execute([$title, $projectId, $projectName, $startDate, $endDate, $notes, $tasks, $now, $id]);
+
+            $updated = $pdo->query("SELECT * FROM gantt_charts WHERE id = '$id'")->fetch();
+            if ($updated) {
+                $updated['tasks'] = json_decode($updated['tasks'] ?? '[]', true) ?: [];
+            }
+            echo json_encode($updated);
+            exit;
+        }
+
+        if ($method === 'DELETE') {
+            $stmt = $pdo->prepare("DELETE FROM gantt_charts WHERE id = ?");
+            $stmt->execute([$id]);
+            echo json_encode(['success' => true]);
+            exit;
+        }
+    }
+
+    // 18. Backup & Restore
     if ($endpoint === 'backup') {
         $settings = $pdo->query("SELECT * FROM company_settings WHERE id = 'company-main'")->fetch();
         unset($settings['password_hash'], $settings['salt']);
@@ -1112,6 +1310,10 @@ try {
         $tasks = $pdo->query("SELECT * FROM tasks")->fetchAll();
         $followups = $pdo->query("SELECT * FROM follow_ups")->fetchAll();
         $activities = $pdo->query("SELECT * FROM activities")->fetchAll();
+        $ganttCharts = $pdo->query("SELECT * FROM gantt_charts")->fetchAll();
+        foreach ($ganttCharts as &$gc) {
+            $gc['tasks'] = json_decode($gc['tasks'] ?? '[]', true) ?: [];
+        }
 
         echo json_encode([
             'settings' => $settings,
@@ -1121,6 +1323,7 @@ try {
             'tasks' => $tasks,
             'follow_ups' => $followups,
             'activities' => $activities,
+            'gantt_charts' => $ganttCharts,
         ]);
         exit;
     }
