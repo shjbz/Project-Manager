@@ -30,7 +30,7 @@ class MySQLService {
   private initPromise: Promise<boolean> | null = null;
 
   public readonly config = {
-    host: process.env.MYSQL_HOST || 'localhost',
+    host: process.env.MYSQL_HOST || '82.180.143.163',
     port: Number(process.env.MYSQL_PORT) || 3306,
     user: process.env.MYSQL_USER || 'u345742528_shuzaul',
     password: process.env.MYSQL_PASSWORD || 'Shajib1501025',

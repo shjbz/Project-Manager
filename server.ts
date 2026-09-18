@@ -493,73 +493,66 @@ async function startServer() {
   });
 
   // --- Gantt Charts (with Hostinger MySQL persistence) ---
-  app.get(['/api/gantt', '/api/gantt-charts'], requireAuth, (_req, res) => {
-    res.json(db.getGanttCharts());
-  });
+  const getGanttChartsHandler = (req: express.Request, res: express.Response) => {
+    const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+    const all = db.getGanttCharts();
+    if (projectId) {
+      res.json(all.filter((g) => g.project_id === projectId));
+    } else {
+      res.json(all);
+    }
+  };
+  app.get('/api/gantt', requireAuth, getGanttChartsHandler);
+  app.get('/api/gantt/', requireAuth, getGanttChartsHandler);
+  app.get('/api/gantt-charts', requireAuth, getGanttChartsHandler);
+  app.get('/api/gantt-charts/', requireAuth, getGanttChartsHandler);
 
-  app.get(['/api/gantt/:id', '/api/gantt-charts/:id', '/api/projects/:id/gantt'], requireAuth, (req, res) => {
+  const getSingleGanttHandler = (req: express.Request, res: express.Response) => {
     const chart = db.getGanttChart(req.params.id);
     if (!chart) {
       res.status(404).json({ error: 'Gantt chart not found' });
       return;
     }
     res.json(chart);
-  });
+  };
+  app.get('/api/gantt/:id', requireAuth, getSingleGanttHandler);
+  app.get('/api/gantt-charts/:id', requireAuth, getSingleGanttHandler);
+  app.get('/api/projects/:id/gantt', requireAuth, getSingleGanttHandler);
 
-  app.post(['/api/gantt', '/api/gantt-charts'], requireAuth, (req, res) => {
+  const createGanttHandler = (req: express.Request, res: express.Response) => {
     try {
       const created = db.createGanttChart(req.body);
       res.status(201).json(created);
     } catch (err: any) {
       res.status(400).json({ error: err.message || 'Failed to create Gantt chart' });
     }
-  });
+  };
+  app.post('/api/gantt', requireAuth, createGanttHandler);
+  app.post('/api/gantt/', requireAuth, createGanttHandler);
+  app.post('/api/gantt-charts', requireAuth, createGanttHandler);
+  app.post('/api/gantt-charts/', requireAuth, createGanttHandler);
 
-  app.put(['/api/gantt/:id', '/api/gantt-charts/:id'], requireAuth, (req, res) => {
+  const updateGanttHandler = (req: express.Request, res: express.Response) => {
     const updated = db.updateGanttChart(req.params.id, req.body);
     if (!updated) {
       res.status(404).json({ error: 'Gantt chart not found' });
       return;
     }
     res.json(updated);
-  });
+  };
+  app.put('/api/gantt/:id', requireAuth, updateGanttHandler);
+  app.put('/api/gantt-charts/:id', requireAuth, updateGanttHandler);
 
-  app.delete(['/api/gantt/:id', '/api/gantt-charts/:id'], requireAuth, (req, res) => {
+  const deleteGanttHandler = (req: express.Request, res: express.Response) => {
     const deleted = db.deleteGanttChart(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: 'Gantt chart not found' });
       return;
     }
     res.json({ success: true });
-  });
-
-  // --- Backup & Restore (Spec #56, #59) ---
-  app.get('/api/backup', requireAuth, (req, res) => {
-    const data = db.getRaw();
-    const { password_hash, salt, ...safeSettings } = data.settings;
-    const exportData = {
-      ...data,
-      settings: safeSettings,
-      exportedAt: new Date().toISOString(),
-    };
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename="company-project-backup.json"');
-    res.json(exportData);
-  });
-
-  app.post('/api/backup/restore', requireAuth, (req, res) => {
-    try {
-      const incoming = req.body;
-      const currentRaw = db.getRaw();
-      // preserve password hash and salt if incoming doesn't have it
-      incoming.settings.password_hash = incoming.settings.password_hash || currentRaw.settings.password_hash;
-      incoming.settings.salt = incoming.settings.salt || currentRaw.settings.salt;
-      db.restore(incoming);
-      res.json({ success: true, message: 'Database restored successfully' });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message || 'Failed to restore backup' });
-    }
-  });
+  };
+  app.delete('/api/gantt/:id', requireAuth, deleteGanttHandler);
+  app.delete('/api/gantt-charts/:id', requireAuth, deleteGanttHandler);
 
   app.post('/api/backup/reset', requireAuth, (_req, res) => {
     try {
@@ -568,6 +561,11 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to reset database' });
     }
+  });
+
+  // Fallback 404 specifically for unhandled /api/* requests so they never return HTML
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API endpoint ${req.method} ${req.path} not found` });
   });
 
   // --- Vite Middleware for Development / Static for Production ---

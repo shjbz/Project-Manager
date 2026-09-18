@@ -54,15 +54,17 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
   }
 
   const contentType = res.headers.get('content-type') || '';
-  if (res.status === 404 || contentType.includes('text/html')) {
-    throw new Error(
-      `API endpoint ${endpoint} not found (404). Please ensure backend routing to Hostinger MySQL is configured.`
-    );
-  }
 
   if (res.status === 401) {
     clearStoredToken();
     throw new Error('UNAUTHORIZED');
+  }
+
+  // If server returned HTML (e.g., fallback SPA or proxy error), report endpoint routing issue
+  if (contentType.includes('text/html')) {
+    throw new Error(
+      `API endpoint ${endpoint} not found (404). Please ensure backend routing to Hostinger MySQL is configured.`
+    );
   }
 
   if (!res.ok) {
