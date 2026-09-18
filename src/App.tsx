@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from './api';
-import type { Project, TeamMember, Client, DashboardStats, Task, FollowUp, CompanySettings } from './types';
+import type { Project, TeamMember, Client, DashboardStats, Task, FollowUp, CompanySettings, GanttChart, GanttTask } from './types';
 import { AuthGate } from './components/AuthGate';
-import { Navigation } from './components/Navigation';
+import { Navigation, NavTab } from './components/Navigation';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { DashboardView } from './components/DashboardView';
 import { ProjectsView } from './components/ProjectsView';
 import { CalendarView } from './components/CalendarView';
+import { GanttChartView } from './components/GanttChartView';
 import { ArchiveView } from './components/ArchiveView';
 import { ProjectDetailView } from './components/ProjectDetailView';
 import { ClientsView } from './components/ClientsView';
@@ -21,6 +22,8 @@ import { TaskModal } from './components/modals/TaskModal';
 import { UpdateModal } from './components/modals/UpdateModal';
 import { ClientModal } from './components/modals/ClientModal';
 import { TeamModal } from './components/modals/TeamModal';
+import { GanttChartModal } from './components/modals/GanttChartModal';
+import { GanttTaskModal } from './components/modals/GanttTaskModal';
 
 export default function App() {
   // Authentication State
@@ -29,7 +32,7 @@ export default function App() {
   const [company, setCompany] = useState<CompanySettings | null>(null);
 
   // Navigation State
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'projects' | 'calendar' | 'archive' | 'clients' | 'team' | 'settings'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<NavTab>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Global Search Modal
@@ -84,6 +87,15 @@ export default function App() {
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [editingTeamMember, setEditingTeamMember] = useState<TeamMember | null>(null);
 
+  // Gantt Chart State
+  const [ganttCharts, setGanttCharts] = useState<GanttChart[]>([]);
+  const [selectedGanttChartId, setSelectedGanttChartId] = useState<string | undefined>(undefined);
+  const [ganttChartModalOpen, setGanttChartModalOpen] = useState(false);
+  const [ganttChartTargetProjectId, setGanttChartTargetProjectId] = useState<string | undefined>(undefined);
+  const [ganttTaskModalOpen, setGanttTaskModalOpen] = useState(false);
+  const [ganttTaskModalChart, setGanttTaskModalChart] = useState<GanttChart | null>(null);
+  const [editingGanttTask, setEditingGanttTask] = useState<GanttTask | null>(null);
+
   // 1. Initial Authentication Check
   useEffect(() => {
     const verifyAuth = async () => {
@@ -113,17 +125,20 @@ export default function App() {
         clientsData,
         dashData,
         companyData,
+        ganttData,
       ] = await Promise.all([
         api.getProjects(),
         api.getTeam(),
         api.getClients(),
         api.getDashboard(),
         api.getCompany().catch(() => null),
+        api.getGanttCharts().catch(() => []),
       ]);
 
       setProjects(projectsData);
       setTeam(teamData);
       setClients(clientsData);
+      setGanttCharts(ganttData);
       if (companyData) {
         setCompany(companyData);
       }
@@ -457,6 +472,38 @@ export default function App() {
     await loadAllData();
   };
 
+  // Gantt Chart Actions
+  const handleSaveGanttChart = async (chartData: any) => {
+    const created = await api.createGanttChart(chartData);
+    await loadAllData();
+    setSelectedGanttChartId(created.id);
+    setCurrentNav('gantt');
+  };
+
+  const handleDeleteGanttChart = async (chartId: string) => {
+    await api.deleteGanttChart(chartId);
+    await loadAllData();
+  };
+
+  const handleSaveGanttTask = async (taskData: GanttTask) => {
+    if (!ganttTaskModalChart) return;
+    const currentTasks = ganttTaskModalChart.tasks || [];
+    const exists = currentTasks.some((t) => t.id === taskData.id);
+    const updatedTasks = exists
+      ? currentTasks.map((t) => (t.id === taskData.id ? taskData : t))
+      : [...currentTasks, taskData];
+    await api.updateGanttChart(ganttTaskModalChart.id, { tasks: updatedTasks });
+    await loadAllData();
+  };
+
+  const handleDeleteGanttTask = async (chartId: string, taskId: string) => {
+    const chart = ganttCharts.find((c) => c.id === chartId);
+    if (!chart) return;
+    const updatedTasks = (chart.tasks || []).filter((t) => t.id !== taskId);
+    await api.updateGanttChart(chartId, { tasks: updatedTasks });
+    await loadAllData();
+  };
+
   // Loading Screen for initial session check
   if (authChecking) {
     return (
@@ -567,6 +614,16 @@ export default function App() {
                 onUpdateTaskStatus={handleUpdateTaskStatus}
                 onUpdateFollowUpStatus={handleUpdateFollowUpStatus}
                 onUpdateProjectQuick={handleQuickUpdateProject}
+                hasGanttChart={ganttCharts.some((g) => g.project_id === selectedProject.id)}
+                onViewGanttChart={() => {
+                  setSelectedGanttChartId(selectedProject.id);
+                  setCurrentNav('gantt');
+                  setSelectedProjectId(null);
+                }}
+                onCreateGanttChart={() => {
+                  setGanttChartTargetProjectId(selectedProject.id);
+                  setGanttChartModalOpen(true);
+                }}
               />
             ) : currentNav === 'dashboard' ? (
               /* Dashboard Overview View */
@@ -602,6 +659,27 @@ export default function App() {
                   setEditingProject(null);
                   setProjectModalOpen(true);
                 }}
+              />
+            ) : currentNav === 'gantt' ? (
+              /* Gantt Chart View */
+              <GanttChartView
+                charts={ganttCharts}
+                projects={projects}
+                team={team}
+                selectedChartId={selectedGanttChartId}
+                onSelectChart={(id) => setSelectedGanttChartId(id)}
+                onOpenNewChart={(projId) => {
+                  setGanttChartTargetProjectId(projId);
+                  setGanttChartModalOpen(true);
+                }}
+                onOpenTaskModal={(chart, task) => {
+                  setGanttTaskModalChart(chart);
+                  setEditingGanttTask(task || null);
+                  setGanttTaskModalOpen(true);
+                }}
+                onDeleteChart={handleDeleteGanttChart}
+                onDeleteTask={handleDeleteGanttTask}
+                onViewProjectDetail={(pId) => setSelectedProjectId(pId)}
               />
             ) : currentNav === 'calendar' ? (
               /* Calendar View */
@@ -766,6 +844,33 @@ export default function App() {
           onSave={handleSaveTeamMember}
           initialData={editingTeamMember}
         />
+
+        {/* Gantt Chart Creation Modal */}
+        <GanttChartModal
+          isOpen={ganttChartModalOpen}
+          onClose={() => {
+            setGanttChartModalOpen(false);
+            setGanttChartTargetProjectId(undefined);
+          }}
+          projects={projects}
+          initialProjectId={ganttChartTargetProjectId}
+          onSave={handleSaveGanttChart}
+        />
+
+        {/* Gantt Task & Multi-Segment Modal */}
+        {ganttTaskModalChart && (
+          <GanttTaskModal
+            isOpen={ganttTaskModalOpen}
+            onClose={() => {
+              setGanttTaskModalOpen(false);
+              setEditingGanttTask(null);
+            }}
+            task={editingGanttTask}
+            chart={ganttTaskModalChart}
+            team={team}
+            onSave={handleSaveGanttTask}
+          />
+        )}
       </div>
     </ErrorBoundary>
   );

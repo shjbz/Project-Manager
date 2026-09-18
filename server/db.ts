@@ -11,6 +11,9 @@ import type {
   FollowUp,
   Activity,
   HealthStatus,
+  GanttChart,
+  GanttTask,
+  GanttSegment,
 } from '../src/types.js';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -24,6 +27,7 @@ export interface DatabaseSchema {
   tasks: Task[];
   follow_ups: FollowUp[];
   activities: Activity[];
+  gantt_charts: GanttChart[];
 }
 
 // Password hashing helpers
@@ -502,6 +506,123 @@ function getInitialDatabase(): DatabaseSchema {
     tasks,
     follow_ups,
     activities,
+    gantt_charts: [
+      {
+        id: 'gantt-1',
+        project_id: 'proj-1',
+        project_name: 'Falcon Tower - Luxury Residential & Commercial Complex',
+        title: 'Falcon Tower - Master Construction Gantt Chart',
+        start_date: '2026-09-01',
+        end_date: '2026-11-30',
+        notes: 'Phase 1 structural foundation, core engineering, and MEP mobilization with scheduled inspection gaps.',
+        created_at: '2026-09-01T08:00:00.000Z',
+        updated_at: '2026-09-17T10:00:00.000Z',
+        tasks: [
+          {
+            id: 'gt-1',
+            title: 'Substructure Piling & Deep Excavation',
+            description: 'Deep bored piling, pile integrity tests, and basement excavation.',
+            assigned_to: 'tm-1',
+            priority: 'urgent',
+            status: 'in_progress',
+            color: 'indigo',
+            segments: [
+              {
+                id: 'seg-1-1',
+                name: 'Section A Piling (North Wing)',
+                start_date: '2026-09-02',
+                end_date: '2026-09-10',
+                progress: 100,
+                notes: 'Completed ahead of schedule',
+              },
+              {
+                id: 'seg-1-2',
+                name: 'Section B Piling (South Wing - Post-Curing)',
+                start_date: '2026-09-18',
+                end_date: '2026-09-28',
+                progress: 60,
+                notes: 'Currently in progress with rig team',
+              },
+            ],
+          },
+          {
+            id: 'gt-2',
+            title: 'Basement Retaining Wall & Raft Casting',
+            description: 'Rebar binding, shuttering inspection, and high-strength concrete pour.',
+            assigned_to: 'tm-2',
+            priority: 'standard',
+            status: 'in_progress',
+            color: 'emerald',
+            segments: [
+              {
+                id: 'seg-2-1',
+                name: 'Raft Foundation Concrete Pour 1',
+                start_date: '2026-09-15',
+                end_date: '2026-09-23',
+                progress: 40,
+              },
+              {
+                id: 'seg-2-2',
+                name: 'Raft Foundation Concrete Pour 2 (After Testing Gap)',
+                start_date: '2026-10-04',
+                end_date: '2026-10-15',
+                progress: 0,
+              },
+            ],
+          },
+          {
+            id: 'gt-3',
+            title: 'Structural Steel Framing & Beam Erection',
+            description: 'Crane mobilization, steel beam assembly, and torque inspections.',
+            assigned_to: 'tm-3',
+            priority: 'medium',
+            status: 'pending',
+            color: 'sky',
+            segments: [
+              {
+                id: 'seg-3-1',
+                name: 'Steel Delivery & Crane Staging',
+                start_date: '2026-09-26',
+                end_date: '2026-10-05',
+                progress: 0,
+              },
+              {
+                id: 'seg-3-2',
+                name: 'Upper Deck Erection (Post-Inspection Phase)',
+                start_date: '2026-10-16',
+                end_date: '2026-10-30',
+                progress: 0,
+              },
+            ],
+          },
+          {
+            id: 'gt-4',
+            title: 'MEP Conduits, Piping & Electrical Risers',
+            description: 'Fire sprinkler mains, HVAC ducting, and power distribution sleeves.',
+            assigned_to: 'tm-1',
+            priority: 'medium',
+            status: 'pending',
+            color: 'amber',
+            segments: [
+              {
+                id: 'seg-4-1',
+                name: 'Basement Conduit Routing',
+                start_date: '2026-10-18',
+                end_date: '2026-10-31',
+                progress: 0,
+              },
+              {
+                id: 'seg-4-2',
+                name: 'Ground Floor Core Piping',
+                start_date: '2026-11-08',
+                end_date: '2026-11-22',
+                progress: 0,
+              },
+            ],
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -527,7 +648,12 @@ export class Database {
     }
     try {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      if (!parsed.gantt_charts) {
+        parsed.gantt_charts = getInitialDatabase().gantt_charts;
+        this.saveDataDirect(parsed);
+      }
+      return parsed;
     } catch (err) {
       console.error('Failed to read db.json, recreating initial:', err);
       const initial = getInitialDatabase();
@@ -1446,6 +1572,82 @@ export class Database {
       overdueItems: combinedOverdue,
       teamWorkload,
     };
+  }
+
+  // --- Gantt Charts ---
+  public getGanttCharts(): GanttChart[] {
+    const allProjects = this.getProjects();
+    const allTeam = this.getTeam();
+    return (this.data.gantt_charts || []).map((gc) => {
+      const proj = allProjects.find((p) => p.id === gc.project_id);
+      return {
+        ...gc,
+        project_name: proj?.project_name || gc.project_name || 'Project',
+        tasks: (gc.tasks || []).map((t) => ({
+          ...t,
+          assigned_member: allTeam.find((m) => m.id === t.assigned_to),
+        })),
+      };
+    });
+  }
+
+  public getGanttChart(id: string): GanttChart | null {
+    const charts = this.getGanttCharts();
+    return charts.find((c) => c.id === id || c.project_id === id) || null;
+  }
+
+  public createGanttChart(data: Partial<GanttChart>): GanttChart {
+    this.data.gantt_charts = this.data.gantt_charts || [];
+    const now = new Date().toISOString();
+    const id = data.id || `gantt-${Date.now()}`;
+    const allProjects = this.getProjects();
+    const proj = allProjects.find((p) => p.id === data.project_id);
+
+    const newChart: GanttChart = {
+      id,
+      project_id: data.project_id || '',
+      project_name: proj?.project_name || data.project_name || 'Project',
+      title: data.title || `${proj?.project_name || 'Project'} Gantt Chart`,
+      start_date: data.start_date || new Date().toISOString().slice(0, 10),
+      end_date: data.end_date || new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10),
+      notes: data.notes || '',
+      tasks: data.tasks || [],
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.data.gantt_charts.push(newChart);
+    this.save();
+    return newChart;
+  }
+
+  public updateGanttChart(id: string, data: Partial<GanttChart>): GanttChart | null {
+    this.data.gantt_charts = this.data.gantt_charts || [];
+    const idx = this.data.gantt_charts.findIndex((c) => c.id === id || c.project_id === id);
+    if (idx === -1) return null;
+
+    const current = this.data.gantt_charts[idx];
+    const updated: GanttChart = {
+      ...current,
+      ...data,
+      tasks: data.tasks !== undefined ? data.tasks : current.tasks,
+      updated_at: new Date().toISOString(),
+    };
+
+    this.data.gantt_charts[idx] = updated;
+    this.save();
+    return updated;
+  }
+
+  public deleteGanttChart(id: string): boolean {
+    this.data.gantt_charts = this.data.gantt_charts || [];
+    const initialLen = this.data.gantt_charts.length;
+    this.data.gantt_charts = this.data.gantt_charts.filter((c) => c.id !== id && c.project_id !== id);
+    if (this.data.gantt_charts.length !== initialLen) {
+      this.save();
+      return true;
+    }
+    return false;
   }
 }
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
+  CalendarRange,
   User,
   Clock,
   CheckCircle2,
@@ -41,6 +42,9 @@ interface ProjectDetailViewProps {
   onUpdateTaskStatus: (taskId: string, newStatus: Task['status']) => Promise<void>;
   onUpdateFollowUpStatus: (fuId: string, newStatus: FollowUp['status']) => Promise<void>;
   onUpdateProjectQuick: (updates: Partial<Project>) => Promise<void>;
+  hasGanttChart?: boolean;
+  onViewGanttChart?: () => void;
+  onCreateGanttChart?: () => void;
 }
 
 type DetailTab = 'overview' | 'tasks' | 'followups' | 'activities' | 'team';
@@ -63,6 +67,9 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   onUpdateTaskStatus,
   onUpdateFollowUpStatus,
   onUpdateProjectQuick,
+  hasGanttChart,
+  onViewGanttChart,
+  onCreateGanttChart,
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
   const [updating, setUpdating] = useState(false);
@@ -133,6 +140,28 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
             <CheckSquare className="w-3.5 h-3.5" />
             <span>Add Task</span>
           </button>
+
+          {hasGanttChart ? (
+            <button
+              id="detail-view-gantt-btn"
+              onClick={onViewGanttChart}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 text-xs font-bold rounded-lg transition cursor-pointer"
+              title="View Gantt Chart for this project"
+            >
+              <CalendarRange className="w-3.5 h-3.5 text-amber-600" />
+              <span>View Gantt Chart</span>
+            </button>
+          ) : (
+            <button
+              id="detail-create-gantt-btn"
+              onClick={onCreateGanttChart}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold rounded-lg transition cursor-pointer"
+              title="Create Gantt Chart for this project"
+            >
+              <CalendarRange className="w-3.5 h-3.5 text-zinc-500" />
+              <span>Create Gantt Chart</span>
+            </button>
+          )}
 
           <button
             id="detail-archive-project-btn"

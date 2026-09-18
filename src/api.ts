@@ -7,6 +7,7 @@ import type {
   FollowUp,
   Activity,
   DashboardStats,
+  GanttChart,
 } from './types';
 
 const TOKEN_KEY = 'company_auth_token';
@@ -347,6 +348,35 @@ export const api = {
     return await apiFetch('/api/activities', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  // --- Gantt Charts ---
+  async getGanttCharts(): Promise<GanttChart[]> {
+    return await apiFetch('/api/gantt');
+  },
+
+  async getGanttChart(id: string): Promise<GanttChart> {
+    return await apiFetch(`/api/gantt/${id}`);
+  },
+
+  async createGanttChart(data: Partial<GanttChart>): Promise<GanttChart> {
+    return await apiFetch('/api/gantt', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateGanttChart(id: string, data: Partial<GanttChart>): Promise<GanttChart> {
+    return await apiFetch(`/api/gantt/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteGanttChart(id: string): Promise<{ success: boolean }> {
+    return await apiFetch(`/api/gantt/${id}`, {
+      method: 'DELETE',
     });
   },
 

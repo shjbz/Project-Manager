@@ -363,6 +363,7 @@ class MySQLService {
         tasks,
         follow_ups,
         activities,
+        gantt_charts: [],
       };
     } catch (err) {
       console.error('[MySQL] Error reading data from Hostinger MySQL:', err);

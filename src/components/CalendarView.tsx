@@ -323,28 +323,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   return (
-    <div className="space-y-5">
-      {/* Calendar Header: Title, Controls, Navigation */}
-      <div className="bg-white border border-zinc-200 rounded-2xl p-4 sm:p-5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-zinc-900 text-white flex items-center justify-center shadow-xs">
-                <CalendarIcon className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-zinc-900 tracking-tight flex items-center gap-2">
-                  <span>Project Schedule & Calendar</span>
-                </h1>
-                <p className="text-xs text-zinc-500 font-medium">
-                  Week starts on <strong>Saturday</strong> &bull; <strong>Friday</strong> is designated weekend &bull; Real-time task deadlines & client follow-ups
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Month Navigation & Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
+    <div className="space-y-4">
+      {/* Sleek Minimalist Controls Bar */}
+      <div className="bg-white border border-zinc-200 rounded-2xl p-3 sm:p-4 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Left: Month Navigation & Today */}
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-xl p-1 shadow-2xs">
               <button
                 onClick={handlePrevMonth}
@@ -391,8 +375,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 Agenda List
               </button>
             </div>
+          </div>
 
-            {/* Quick Record Buttons */}
+          {/* Right: Quick Actions */}
+          <div className="flex items-center gap-2">
             {onOpenNewTask && (
               <button
                 onClick={() => onOpenNewTask(todayStr)}
@@ -415,59 +401,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </div>
         </div>
 
-        {/* Minimal Metrics Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-zinc-100">
-          <div className="flex items-center gap-2.5 p-2.5 bg-zinc-50 rounded-xl border border-zinc-100">
-            <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center shrink-0">
-              <CheckSquare className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Tasks (Deadlines)</div>
-              <div className="text-base font-bold text-sky-950 leading-tight">
-                {monthStats.tasks} <span className="text-[11px] font-medium text-zinc-500">this month</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 p-2.5 bg-zinc-50 rounded-xl border border-zinc-100">
-            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-              <CalendarCheck className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Follow-ups (Dates)</div>
-              <div className="text-base font-bold text-amber-950 leading-tight">
-                {monthStats.followUps} <span className="text-[11px] font-medium text-zinc-500">touchpoints</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 p-2.5 bg-zinc-50 rounded-xl border border-zinc-100">
-            <div className="w-8 h-8 rounded-lg bg-zinc-200 text-zinc-800 flex items-center justify-center shrink-0">
-              <Clock className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Pending Deliverables</div>
-              <div className="text-base font-bold text-zinc-900 leading-tight">
-                {monthStats.pending} <span className="text-[11px] font-medium text-zinc-500">in schedule</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 p-2.5 bg-zinc-50 rounded-xl border border-zinc-100">
-            <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
-              <AlertCircle className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Overdue Attention</div>
-              <div className="text-base font-bold text-rose-950 leading-tight">
-                {monthStats.overdue} <span className="text-[11px] font-medium text-zinc-500">action required</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Minimal Filters & Search Strip */}
-        <div className="mt-4 pt-3 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
+        {/* Filters & Search Strip */}
+        <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
           {/* Type Tabs */}
           <div className="flex items-center gap-1.5">
             <button
@@ -570,19 +505,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-xs overflow-hidden">
           {/* Day of Week Headers: Saturday to Friday */}
           <div className="grid grid-cols-7 border-b border-zinc-200 bg-zinc-50/80 text-xs font-bold text-zinc-600">
-            {DAYS_OF_WEEK.map((d, idx) => (
+            {DAYS_OF_WEEK.map((d) => (
               <div
                 key={d.full}
-                className={`p-3 text-center border-r border-zinc-200 last:border-r-0 flex flex-col sm:flex-row items-center justify-center gap-1.5 ${
-                  d.isWeekend ? 'bg-amber-50/40 text-amber-950 font-bold' : ''
+                className={`p-3 text-center border-r border-zinc-200 last:border-r-0 ${
+                  d.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
                 }`}
               >
                 <span>{d.full}</span>
-                {d.isWeekend && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200 tracking-wider uppercase">
-                    Weekend
-                  </span>
-                )}
               </div>
             ))}
           </div>
@@ -599,9 +529,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   key={cell.dateStr}
                   className={`min-h-[110px] sm:min-h-[125px] p-2 flex flex-col transition group relative ${
                     !cell.isCurrentMonth
-                      ? 'bg-zinc-50/60 text-zinc-400'
+                      ? cell.isWeekend
+                        ? 'bg-amber-50/30 text-zinc-400'
+                        : 'bg-zinc-50/60 text-zinc-400'
                       : cell.isWeekend
-                      ? 'bg-amber-50/20 text-zinc-800'
+                      ? 'bg-amber-50/50 text-zinc-800'
                       : 'bg-white text-zinc-900'
                   } ${isCellToday ? 'ring-2 ring-inset ring-zinc-900/80' : ''}`}
                 >

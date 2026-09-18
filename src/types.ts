@@ -147,6 +147,43 @@ export interface Activity {
   team_member?: TeamMember;
 }
 
+export interface GanttSegment {
+  id: string;
+  name?: string; // e.g. "Phase 1", "Sprint 1", "Site Execution"
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  progress?: number; // 0 - 100
+  notes?: string;
+}
+
+export interface GanttTask {
+  id: string;
+  title: string;
+  description?: string;
+  assigned_to?: string; // TeamMember id
+  priority: Priority;
+  status: TaskStatus;
+  color?: string; // e.g. 'indigo' | 'emerald' | 'amber' | 'sky' | 'rose' | 'violet'
+  segments: GanttSegment[];
+  created_at?: string;
+  updated_at?: string;
+  // Hydrated
+  assigned_member?: TeamMember;
+}
+
+export interface GanttChart {
+  id: string;
+  project_id: string;
+  project_name?: string;
+  title: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  notes?: string;
+  tasks: GanttTask[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Project {
   id: string;
   project_name: string;

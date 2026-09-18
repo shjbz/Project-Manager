@@ -492,6 +492,47 @@ async function startServer() {
     res.status(201).json(act);
   });
 
+  // --- Gantt Charts ---
+  app.get('/api/gantt', requireAuth, (_req, res) => {
+    res.json(db.getGanttCharts());
+  });
+
+  app.get('/api/gantt/:id', requireAuth, (req, res) => {
+    const chart = db.getGanttChart(req.params.id);
+    if (!chart) {
+      res.status(404).json({ error: 'Gantt chart not found' });
+      return;
+    }
+    res.json(chart);
+  });
+
+  app.post('/api/gantt', requireAuth, (req, res) => {
+    try {
+      const created = db.createGanttChart(req.body);
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to create Gantt chart' });
+    }
+  });
+
+  app.put('/api/gantt/:id', requireAuth, (req, res) => {
+    const updated = db.updateGanttChart(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: 'Gantt chart not found' });
+      return;
+    }
+    res.json(updated);
+  });
+
+  app.delete('/api/gantt/:id', requireAuth, (req, res) => {
+    const deleted = db.deleteGanttChart(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Gantt chart not found' });
+      return;
+    }
+    res.json({ success: true });
+  });
+
   // --- Backup & Restore (Spec #56, #59) ---
   app.get('/api/backup', requireAuth, (req, res) => {
     const data = db.getRaw();
