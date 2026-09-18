@@ -2,6 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard,
   FolderKanban,
+  Calendar,
   Users2,
   Building,
   Settings,
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { CompanySettings } from '../types';
 
-export type NavTab = 'dashboard' | 'projects' | 'archive' | 'clients' | 'team' | 'settings';
+export type NavTab = 'dashboard' | 'projects' | 'calendar' | 'archive' | 'clients' | 'team' | 'settings';
 
 interface NavigationProps {
   currentTab?: NavTab;
@@ -62,6 +63,11 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Projects',
       icon: <FolderKanban className="w-4 h-4" />,
       count: overdueCount > 0 ? overdueCount : undefined,
+    },
+    {
+      id: 'calendar',
+      label: 'Calendar',
+      icon: <Calendar className="w-4 h-4" />,
     },
     {
       id: 'archive',

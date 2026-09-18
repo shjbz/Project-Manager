@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { DashboardView } from './components/DashboardView';
 import { ProjectsView } from './components/ProjectsView';
+import { CalendarView } from './components/CalendarView';
 import { ArchiveView } from './components/ArchiveView';
 import { ProjectDetailView } from './components/ProjectDetailView';
 import { ClientsView } from './components/ClientsView';
@@ -28,7 +29,7 @@ export default function App() {
   const [company, setCompany] = useState<CompanySettings | null>(null);
 
   // Navigation State
-  const [currentNav, setCurrentNav] = useState<'dashboard' | 'projects' | 'archive' | 'clients' | 'team' | 'settings'>('dashboard');
+  const [currentNav, setCurrentNav] = useState<'dashboard' | 'projects' | 'calendar' | 'archive' | 'clients' | 'team' | 'settings'>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Global Search Modal
@@ -66,10 +67,12 @@ export default function App() {
 
   const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
   const [followUpTargetProjectId, setFollowUpTargetProjectId] = useState<string | undefined>(undefined);
+  const [followUpDefaultDate, setFollowUpDefaultDate] = useState<string | undefined>(undefined);
   const [editingFollowUp, setEditingFollowUp] = useState<FollowUp | null>(null);
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskTargetProjectId, setTaskTargetProjectId] = useState<string | undefined>(undefined);
+  const [taskDefaultDate, setTaskDefaultDate] = useState<string | undefined>(undefined);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
@@ -138,6 +141,104 @@ export default function App() {
       setLoadingData(false);
     }
   }, [isAuthenticated]);
+
+  // Live computed metrics to ensure Follow-up Required, Upcoming Tasks, Team Workload, and Overdue items
+  // are ALWAYS up-to-date in the dashboard whenever any project, task, or follow-up changes.
+  const liveFollowUpsAttention = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const list: any[] = [];
+    projects.forEach((p) => {
+      if (p.is_archived) return;
+      const clientName = p.client?.name || clients.find((c) => c.id === p.client_id)?.name || 'Client';
+      (p.follow_ups || []).forEach((fu) => {
+        if (fu.status === 'completed') return;
+        const creator = team.find((m) => m.id === fu.created_by);
+        const fDate = fu.follow_up_date || (fu as any).date || '';
+        list.push({
+          id: fu.id,
+          project_id: p.id,
+          project_name: p.project_name,
+          client_name: clientName,
+          follow_up_date: fDate,
+          method: fu.method || 'Phone',
+          notes: fu.notes || '',
+          status: fu.status,
+          creator_member: creator,
+          is_overdue: fDate ? fDate < todayStr : false,
+          is_today: fDate ? fDate === todayStr : false,
+        });
+      });
+    });
+    list.sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+    return list.length > 0 ? list : followUpsAttention;
+  }, [projects, clients, team, followUpsAttention]);
+
+  const liveUpcomingTasks = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const list: any[] = [];
+    projects.forEach((p) => {
+      if (p.is_archived) return;
+      (p.tasks || []).forEach((t) => {
+        if (t.status === 'completed') return;
+        const member = team.find((m) => m.id === t.assigned_to);
+        const dueDate = t.due_date || '';
+        list.push({
+          id: t.id,
+          project_id: p.id,
+          project_name: p.project_name,
+          title: t.title,
+          due_date: dueDate,
+          priority: t.priority,
+          status: t.status,
+          assigned_to: t.assigned_to,
+          assigned_member: member,
+          is_overdue: dueDate ? dueDate < todayStr : false,
+        });
+      });
+    });
+    list.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    return list.length > 0 ? list : upcomingTasks;
+  }, [projects, team, upcomingTasks]);
+
+  const liveTeamWorkload = useMemo(() => {
+    if (!team || team.length === 0) return teamWorkload;
+    return team
+      .filter((m) => m.status === 'active')
+      .map((m) => {
+        const assigned = projects.filter((p) => {
+          if (p.is_archived) return false;
+          const memberIds = Array.isArray(p.team_member_ids) ? p.team_member_ids : [];
+          return p.project_lead_id === m.id || memberIds.includes(m.id);
+        });
+        const activeProj = assigned.filter((p) => p.status === 'active' || p.status === 'at_risk');
+        const urgentProj = assigned.filter((p) => p.priority === 'urgent' && p.status !== 'completed' && p.status !== 'cancelled');
+        const followUpPending = assigned.filter((p) => p.status === 'follow_up_pending');
+        const overdueProjects = assigned.filter((p) => p.is_overdue);
+
+        return {
+          id: m.id,
+          name: m.name,
+          designation: m.designation,
+          avatar: m.avatar,
+          totalProjects: assigned.length,
+          activeProjects: activeProj.length,
+          urgentProjects: urgentProj.length,
+          followUpPending: followUpPending.length,
+          overdueProjects: overdueProjects.length,
+        };
+      })
+      .sort((a, b) => b.totalProjects - a.totalProjects);
+  }, [team, projects, teamWorkload]);
+
+  const liveOverdueItems = useMemo(() => {
+    const overdueTasks = liveUpcomingTasks.filter((t) => t.is_overdue);
+    const overdueFUs = liveFollowUpsAttention.filter((f) => f.is_overdue);
+    const combined = [
+      ...overdueTasks.map((t) => ({ ...t, type: 'task' as const })),
+      ...overdueFUs.map((f) => ({ ...f, type: 'follow_up' as const, title: f.notes || `${f.method} follow-up` })),
+    ];
+    return combined.length > 0 ? combined : overdueItems;
+  }, [liveUpcomingTasks, liveFollowUpsAttention, overdueItems]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -474,10 +575,10 @@ export default function App() {
                 projects={projects}
                 team={team}
                 clients={clients}
-                followUpsAttention={followUpsAttention}
-                upcomingTasks={upcomingTasks}
-                overdueItems={overdueItems}
-                teamWorkload={teamWorkload}
+                followUpsAttention={liveFollowUpsAttention}
+                upcomingTasks={liveUpcomingTasks}
+                overdueItems={liveOverdueItems}
+                teamWorkload={liveTeamWorkload}
                 onSelectProject={(id) => setSelectedProjectId(id)}
                 onOpenNewProject={() => {
                   setEditingProject(null);
@@ -486,6 +587,7 @@ export default function App() {
                 onOpenNewFollowUp={() => {
                   setEditingFollowUp(null);
                   setFollowUpTargetProjectId(undefined);
+                  setFollowUpDefaultDate(undefined);
                   setFollowUpModalOpen(true);
                 }}
               />
@@ -500,6 +602,28 @@ export default function App() {
                   setEditingProject(null);
                   setProjectModalOpen(true);
                 }}
+              />
+            ) : currentNav === 'calendar' ? (
+              /* Calendar View */
+              <CalendarView
+                projects={projects}
+                team={team}
+                clients={clients}
+                onSelectProject={(id) => setSelectedProjectId(id)}
+                onOpenNewTask={(date, pId) => {
+                  setEditingTask(null);
+                  setTaskTargetProjectId(pId || undefined);
+                  setTaskDefaultDate(date);
+                  setTaskModalOpen(true);
+                }}
+                onOpenNewFollowUp={(date, pId) => {
+                  setEditingFollowUp(null);
+                  setFollowUpTargetProjectId(pId || undefined);
+                  setFollowUpDefaultDate(date);
+                  setFollowUpModalOpen(true);
+                }}
+                onUpdateTaskStatus={handleUpdateTaskStatus}
+                onUpdateFollowUpStatus={handleUpdateFollowUpStatus}
               />
             ) : currentNav === 'archive' ? (
               /* Project Archive View */
@@ -595,12 +719,14 @@ export default function App() {
           onClose={() => {
             setFollowUpModalOpen(false);
             setEditingFollowUp(null);
+            setFollowUpDefaultDate(undefined);
           }}
           onSave={handleSaveFollowUp}
           projects={projects.filter((p) => !p.is_archived)}
           team={team}
           defaultProjectId={followUpTargetProjectId}
           initialData={editingFollowUp}
+          defaultFollowUpDate={followUpDefaultDate}
         />
 
         <TaskModal
@@ -608,12 +734,14 @@ export default function App() {
           onClose={() => {
             setTaskModalOpen(false);
             setEditingTask(null);
+            setTaskDefaultDate(undefined);
           }}
           onSave={handleSaveTask}
           projectId={taskTargetProjectId}
           projects={projects.filter((p) => !p.is_archived)}
           team={team}
           initialData={editingTask}
+          defaultDueDate={taskDefaultDate}
         />
 
         <UpdateModal

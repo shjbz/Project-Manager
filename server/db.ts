@@ -1317,7 +1317,7 @@ export class Database {
 
   // --- Dashboard Data & Statistics ---
   public getDashboardStats() {
-    const todayStr = '2026-09-15';
+    const todayStr = new Date().toISOString().slice(0, 10);
     const allProjects = this.getProjects();
 
     const active = allProjects.filter((p) => p.status === 'active');
@@ -1326,10 +1326,11 @@ export class Database {
     const overdueProjects = allProjects.filter((p) => p.is_overdue);
 
     // Due soon: next task due between today and next 5 days
+    const nextFiveDays = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const dueSoon = allProjects.filter((p) => {
       if (p.status === 'completed' || p.status === 'cancelled') return false;
       const due = p.next_task?.due_date;
-      return due && due >= todayStr && due <= '2026-09-20';
+      return due && due >= todayStr && due <= nextFiveDays;
     });
 
     const completedMonth = allProjects.filter((p) => p.status === 'completed');
@@ -1341,9 +1342,9 @@ export class Database {
     const overdueCount = allProjects.filter((p) => p.health_status === 'overdue').length;
     const completed = allProjects.filter((p) => p.health_status === 'completed').length;
 
-    // Follow-ups requiring attention (today or overdue)
+    // Follow-ups requiring attention (pending, sorted by date)
     const followUpsRequiringAttention = this.data.follow_ups
-      .filter((f) => f.status !== 'completed' && f.follow_up_date <= '2026-09-18')
+      .filter((f) => f.status !== 'completed')
       .map((f) => {
         const proj = allProjects.find((p) => p.id === f.project_id);
         const creator = this.data.team_members.find((m) => m.id === f.created_by);

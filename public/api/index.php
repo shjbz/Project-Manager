@@ -495,18 +495,136 @@ try {
             $actStmt = $pdo->query("SELECT * FROM activities ORDER BY created_at DESC LIMIT 10");
             $recentActs = $actStmt->fetchAll();
             $teamStmt = $pdo->query("SELECT * FROM team_members");
+            $teamMembersAll = $teamStmt->fetchAll();
             $teamMap = [];
-            foreach ($teamStmt->fetchAll() as $t) {
+            foreach ($teamMembersAll as $t) {
                 $teamMap[$t['id']] = $t;
             }
             foreach ($recentActs as &$act) {
                 $act['team_member'] = !empty($act['team_member_id']) ? ($teamMap[$act['team_member_id']] ?? null) : null;
             }
 
+            // Project & Client Lookup Map
+            $allProjectsStmt = $pdo->query("SELECT p.id, p.project_name, p.project_lead_id, p.team_member_ids, p.priority, p.status, c.name as client_name 
+                FROM projects p 
+                LEFT JOIN clients c ON p.client_id = c.id 
+                WHERE p.is_archived = 0");
+            $allProjectsRows = $allProjectsStmt->fetchAll();
+            $projMap = [];
+            foreach ($allProjectsRows as $p) {
+                $projMap[$p['id']] = $p;
+            }
+
+            // Follow-ups requiring attention (pending or scheduled)
+            $fuStmt = $pdo->query("SELECT * FROM follow_ups WHERE status != 'completed' AND status != 'cancelled' ORDER BY follow_up_date ASC LIMIT 25");
+            $pendingFu = $fuStmt->fetchAll();
+            $followUpsAttention = [];
+            foreach ($pendingFu as $fu) {
+                $pInfo = $projMap[$fu['project_id']] ?? null;
+                $creator = !empty($fu['created_by']) ? ($teamMap[$fu['created_by']] ?? null) : null;
+                $fDate = $fu['follow_up_date'] ?? '';
+                $followUpsAttention[] = [
+                    'id' => $fu['id'],
+                    'project_id' => $fu['project_id'],
+                    'project_name' => $pInfo['project_name'] ?? 'Project',
+                    'client_name' => $pInfo['client_name'] ?? 'Client',
+                    'follow_up_date' => $fDate,
+                    'method' => $fu['method'] ?? 'Phone',
+                    'notes' => $fu['notes'] ?? '',
+                    'status' => $fu['status'],
+                    'creator_member' => $creator,
+                    'is_overdue' => ($fDate < $today),
+                    'is_today' => ($fDate === $today)
+                ];
+            }
+
+            // Upcoming tasks: pending tasks ordered by due_date
+            $taskStmt = $pdo->query("SELECT * FROM tasks WHERE status != 'completed' ORDER BY due_date ASC LIMIT 30");
+            $tasksRows = $taskStmt->fetchAll();
+            $upcomingTasks = [];
+            $overdueItems = [];
+            foreach ($tasksRows as $t) {
+                $pInfo = $projMap[$t['project_id']] ?? null;
+                $assigned = !empty($t['assigned_to']) ? ($teamMap[$t['assigned_to']] ?? null) : null;
+                $dueDate = $t['due_date'] ?? '';
+                $taskObj = [
+                    'id' => $t['id'],
+                    'project_id' => $t['project_id'],
+                    'project_name' => $pInfo['project_name'] ?? 'Project',
+                    'title' => $t['title'],
+                    'due_date' => $dueDate,
+                    'priority' => $t['priority'] ?? 'standard',
+                    'status' => $t['status'],
+                    'assigned_to' => $t['assigned_to'] ?? null,
+                    'assigned_member' => $assigned,
+                    'is_overdue' => ($dueDate < $today)
+                ];
+                if ($dueDate >= $today) {
+                    $upcomingTasks[] = $taskObj;
+                } else {
+                    $overdueItems[] = [
+                        'id' => $t['id'],
+                        'type' => 'task',
+                        'project_id' => $t['project_id'],
+                        'project_name' => $pInfo['project_name'] ?? 'Project',
+                        'title' => $t['title'],
+                        'due_date' => $dueDate,
+                        'assigned_member' => $assigned
+                    ];
+                }
+            }
+
+            // Team Workload calculation
+            $teamWorkload = [];
+            foreach ($teamMembersAll as $m) {
+                if (($m['status'] ?? 'active') !== 'active') continue;
+                $mid = $m['id'];
+                $totalProj = 0;
+                $activeProj = 0;
+                $urgentProj = 0;
+                $followUpPendingCount = 0;
+                $overdueProjCount = 0;
+
+                foreach ($allProjectsRows as $p) {
+                    $mids = json_decode($p['team_member_ids'] ?? '[]', true) ?: [];
+                    if ($p['project_lead_id'] === $mid || in_array($mid, $mids)) {
+                        $totalProj++;
+                        if ($p['status'] === 'active' || $p['status'] === 'at_risk') {
+                            $activeProj++;
+                        }
+                        if ($p['priority'] === 'urgent' && $p['status'] !== 'completed') {
+                            $urgentProj++;
+                        }
+                        if ($p['status'] === 'follow_up_pending') {
+                            $followUpPendingCount++;
+                        }
+                    }
+                }
+
+                $teamWorkload[] = [
+                    'id' => $m['id'],
+                    'name' => $m['name'],
+                    'designation' => $m['designation'] ?? 'Staff',
+                    'avatar' => $m['avatar'] ?? null,
+                    'totalProjects' => $totalProj,
+                    'activeProjects' => $activeProj,
+                    'urgentProjects' => $urgentProj,
+                    'followUpPending' => $followUpPendingCount,
+                    'overdueProjects' => $overdueProjCount
+                ];
+            }
+            usort($teamWorkload, function($a, $b) {
+                return $b['totalProjects'] - $a['totalProjects'];
+            });
+
             echo json_encode([
                 'stats' => $stats,
                 'recentProjects' => $enrichedProjects,
-                'activities' => $recentActs
+                'activities' => $recentActs,
+                'followUpsRequiringAttention' => $followUpsAttention,
+                'upcomingTasks' => $upcomingTasks,
+                'overdueItems' => $overdueItems,
+                'teamWorkload' => $teamWorkload
             ]);
         } else {
             echo json_encode($stats);

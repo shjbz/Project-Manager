@@ -10,6 +10,7 @@ interface FollowUpModalProps {
   team: TeamMember[];
   defaultProjectId?: string;
   initialData?: FollowUp | null;
+  defaultFollowUpDate?: string;
 }
 
 const METHODS: FollowUpMethod[] = ['Phone', 'In-Person', 'WhatsApp', 'Email', 'Site Visit'];
@@ -22,11 +23,12 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
   team,
   defaultProjectId,
   initialData,
+  defaultFollowUpDate,
 }) => {
   const [projectId, setProjectId] = useState(
     initialData?.project_id || defaultProjectId || (projects[0]?.id || '')
   );
-  const [followUpDate, setFollowUpDate] = useState('2026-09-17');
+  const [followUpDate, setFollowUpDate] = useState(defaultFollowUpDate || new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState<FollowUpMethod>('Phone');
   const [notes, setNotes] = useState('');
   const [createdBy, setCreatedBy] = useState(team[0]?.id || '');
@@ -46,7 +48,7 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
       } else {
         setProjectId(defaultProjectId || (projects[0]?.id || ''));
         setNotes('');
-        setFollowUpDate('2026-09-17');
+        setFollowUpDate(defaultFollowUpDate || new Date().toISOString().slice(0, 10));
         setMethod('Phone');
         setCreatedBy(team[0]?.id || '');
         setStatus('pending');
@@ -54,7 +56,7 @@ export const FollowUpModal: React.FC<FollowUpModalProps> = ({
       setError(null);
       setSaving(false);
     }
-  }, [isOpen, defaultProjectId, projects, team, initialData]);
+  }, [isOpen, defaultProjectId, projects, team, initialData, defaultFollowUpDate]);
 
   if (!isOpen) return null;
 

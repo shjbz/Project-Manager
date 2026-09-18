@@ -10,6 +10,7 @@ interface TaskModalProps {
   projects?: Project[];
   team: TeamMember[];
   initialData?: Task | null;
+  defaultDueDate?: string;
 }
 
 export const TaskModal: React.FC<TaskModalProps> = ({
@@ -20,6 +21,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   projects = [],
   team,
   initialData,
+  defaultDueDate,
 }) => {
   const [selectedProjectId, setSelectedProjectId] = useState(
     initialData?.project_id || defaultProjectId || (projects[0]?.id || '')
@@ -28,7 +30,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [description, setDescription] = useState('');
   const [assignedTo, setAssignedTo] = useState(team[0]?.id || '');
   const [priority, setPriority] = useState<Priority>('medium');
-  const [dueDate, setDueDate] = useState('2026-09-20');
+  const [dueDate, setDueDate] = useState(defaultDueDate || new Date().toISOString().slice(0, 10));
   const [status, setStatus] = useState<TaskStatus>('pending');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +53,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         setDescription('');
         setAssignedTo(team[0]?.id || '');
         setPriority('medium');
-        setDueDate('2026-09-20');
+        setDueDate(defaultDueDate || new Date().toISOString().slice(0, 10));
         setStatus('pending');
       }
       setError(null);
       setSaving(false);
     }
-  }, [isOpen, initialData, defaultProjectId, projects, team]);
+  }, [isOpen, initialData, defaultProjectId, projects, team, defaultDueDate]);
 
   if (!isOpen) return null;
 
