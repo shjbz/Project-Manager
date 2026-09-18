@@ -1642,9 +1642,13 @@ export class Database {
   public deleteGanttChart(id: string): boolean {
     this.data.gantt_charts = this.data.gantt_charts || [];
     const initialLen = this.data.gantt_charts.length;
+    const target = this.data.gantt_charts.find((c) => c.id === id || c.project_id === id);
     this.data.gantt_charts = this.data.gantt_charts.filter((c) => c.id !== id && c.project_id !== id);
     if (this.data.gantt_charts.length !== initialLen) {
       this.save();
+      if (target) {
+        mysqlDb.removeGanttChart(target.id).catch((err) => console.error('[MySQL] removeGanttChart error:', err));
+      }
       return true;
     }
     return false;

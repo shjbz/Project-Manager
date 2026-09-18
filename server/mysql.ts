@@ -8,6 +8,7 @@ import type {
   Task,
   FollowUp,
   Activity,
+  GanttChart,
 } from '../src/types.js';
 
 export interface MySQLStatus {
@@ -203,6 +204,19 @@ class MySQLService {
         activity_date VARCHAR(64),
         created_at VARCHAR(64)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+      `CREATE TABLE IF NOT EXISTS gantt_charts (
+        id VARCHAR(64) PRIMARY KEY,
+        project_id VARCHAR(64) NOT NULL,
+        project_name VARCHAR(255),
+        title VARCHAR(255) NOT NULL,
+        start_date VARCHAR(64),
+        end_date VARCHAR(64),
+        notes TEXT,
+        tasks LONGTEXT,
+        created_at VARCHAR(64),
+        updated_at VARCHAR(64)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
     ];
 
     for (const q of queries) {
@@ -355,6 +369,27 @@ class MySQLService {
         created_at: r.created_at,
       }));
 
+      let gantt_charts: GanttChart[] = [];
+      try {
+        const [ganttRows]: [any[], any] = await this.pool.query(
+          'SELECT * FROM gantt_charts ORDER BY created_at ASC'
+        );
+        gantt_charts = (ganttRows || []).map((r) => ({
+          id: r.id,
+          project_id: r.project_id,
+          project_name: r.project_name || undefined,
+          title: r.title,
+          start_date: r.start_date,
+          end_date: r.end_date,
+          notes: r.notes || '',
+          tasks: typeof r.tasks === 'string' ? JSON.parse(r.tasks || '[]') : (r.tasks || []),
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        }));
+      } catch (gErr) {
+        console.warn('[MySQL] Could not read gantt_charts table:', gErr);
+      }
+
       return {
         settings,
         team_members,
@@ -363,7 +398,7 @@ class MySQLService {
         tasks,
         follow_ups,
         activities,
-        gantt_charts: [],
+        gantt_charts,
       };
     } catch (err) {
       console.error('[MySQL] Error reading data from Hostinger MySQL:', err);
@@ -423,6 +458,7 @@ class MySQLService {
       await this.pool.query('DELETE FROM tasks');
       await this.pool.query('DELETE FROM follow_ups');
       await this.pool.query('DELETE FROM activities');
+      await this.pool.query('DELETE FROM gantt_charts');
 
       for (const m of schema.team_members) {
         await this.pool.query(
@@ -490,6 +526,25 @@ class MySQLService {
         );
       }
 
+      for (const g of schema.gantt_charts || []) {
+        await this.pool.query(
+          `INSERT INTO gantt_charts (id, project_id, project_name, title, start_date, end_date, notes, tasks, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            g.id,
+            g.project_id,
+            g.project_name || null,
+            g.title,
+            g.start_date,
+            g.end_date,
+            g.notes || null,
+            JSON.stringify(g.tasks || []),
+            g.created_at,
+            g.updated_at,
+          ]
+        );
+      }
+
       console.log('[MySQL] Synced all database records to Hostinger MySQL');
     } catch (err) {
       console.error('[MySQL] Error writing records to Hostinger MySQL:', err);
@@ -522,6 +577,9 @@ class MySQLService {
       }
       for (const a of schema.activities || []) {
         await this.syncActivity(a);
+      }
+      for (const g of schema.gantt_charts || []) {
+        await this.syncGanttChart(g);
       }
     } catch (err) {
       console.error('[MySQL] Safe syncAll error:', err);
@@ -625,6 +683,7 @@ class MySQLService {
       await this.pool.query('DELETE FROM tasks WHERE project_id = ?', [id]);
       await this.pool.query('DELETE FROM follow_ups WHERE project_id = ?', [id]);
       await this.pool.query('DELETE FROM activities WHERE project_id = ?', [id]);
+      await this.pool.query('DELETE FROM gantt_charts WHERE project_id = ?', [id]);
     } catch (err) {
       console.error('[MySQL] removeProject error:', err);
     }
@@ -763,6 +822,48 @@ class MySQLService {
       );
     } catch (err) {
       console.error('[MySQL] syncActivity error:', err);
+    }
+  }
+
+  public async syncGanttChart(g: GanttChart): Promise<void> {
+    if (!this.pool || !this.isConnected) return;
+    try {
+      await this.pool.query(
+        `INSERT INTO gantt_charts (id, project_id, project_name, title, start_date, end_date, notes, tasks, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           project_id = VALUES(project_id),
+           project_name = VALUES(project_name),
+           title = VALUES(title),
+           start_date = VALUES(start_date),
+           end_date = VALUES(end_date),
+           notes = VALUES(notes),
+           tasks = VALUES(tasks),
+           updated_at = VALUES(updated_at)`,
+        [
+          g.id,
+          g.project_id,
+          g.project_name || null,
+          g.title,
+          g.start_date,
+          g.end_date,
+          g.notes || null,
+          JSON.stringify(g.tasks || []),
+          g.created_at,
+          g.updated_at,
+        ]
+      );
+    } catch (err) {
+      console.error('[MySQL] syncGanttChart error:', err);
+    }
+  }
+
+  public async removeGanttChart(id: string): Promise<void> {
+    if (!this.pool || !this.isConnected) return;
+    try {
+      await this.pool.query('DELETE FROM gantt_charts WHERE id = ?', [id]);
+    } catch (err) {
+      console.error('[MySQL] removeGanttChart error:', err);
     }
   }
 }

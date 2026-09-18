@@ -492,12 +492,12 @@ async function startServer() {
     res.status(201).json(act);
   });
 
-  // --- Gantt Charts ---
-  app.get('/api/gantt', requireAuth, (_req, res) => {
+  // --- Gantt Charts (with Hostinger MySQL persistence) ---
+  app.get(['/api/gantt', '/api/gantt-charts'], requireAuth, (_req, res) => {
     res.json(db.getGanttCharts());
   });
 
-  app.get('/api/gantt/:id', requireAuth, (req, res) => {
+  app.get(['/api/gantt/:id', '/api/gantt-charts/:id', '/api/projects/:id/gantt'], requireAuth, (req, res) => {
     const chart = db.getGanttChart(req.params.id);
     if (!chart) {
       res.status(404).json({ error: 'Gantt chart not found' });
@@ -506,7 +506,7 @@ async function startServer() {
     res.json(chart);
   });
 
-  app.post('/api/gantt', requireAuth, (req, res) => {
+  app.post(['/api/gantt', '/api/gantt-charts'], requireAuth, (req, res) => {
     try {
       const created = db.createGanttChart(req.body);
       res.status(201).json(created);
@@ -515,7 +515,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/gantt/:id', requireAuth, (req, res) => {
+  app.put(['/api/gantt/:id', '/api/gantt-charts/:id'], requireAuth, (req, res) => {
     const updated = db.updateGanttChart(req.params.id, req.body);
     if (!updated) {
       res.status(404).json({ error: 'Gantt chart not found' });
@@ -524,7 +524,7 @@ async function startServer() {
     res.json(updated);
   });
 
-  app.delete('/api/gantt/:id', requireAuth, (req, res) => {
+  app.delete(['/api/gantt/:id', '/api/gantt-charts/:id'], requireAuth, (req, res) => {
     const deleted = db.deleteGanttChart(req.params.id);
     if (!deleted) {
       res.status(404).json({ error: 'Gantt chart not found' });
