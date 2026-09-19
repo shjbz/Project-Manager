@@ -481,8 +481,14 @@ export default function App() {
   };
 
   const handleDeleteGanttChart = async (chartId: string) => {
-    await api.deleteGanttChart(chartId);
-    await loadAllData();
+    try {
+      await api.deleteGanttChart(chartId);
+      setGanttCharts((prev) => prev.filter((c) => c.id !== chartId && c.project_id !== chartId));
+      setSelectedGanttChartId((prev) => (prev === chartId ? null : prev));
+      await loadAllData();
+    } catch (err: any) {
+      console.error('Failed to delete Gantt chart:', err);
+    }
   };
 
   const handleSaveGanttTask = async (taskData: GanttTask) => {
@@ -666,6 +672,7 @@ export default function App() {
                 charts={ganttCharts}
                 projects={projects}
                 team={team}
+                companySettings={company}
                 selectedChartId={selectedGanttChartId}
                 onSelectChart={(id) => setSelectedGanttChartId(id)}
                 onOpenNewChart={(projId) => {

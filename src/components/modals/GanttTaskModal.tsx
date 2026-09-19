@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Calendar, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, AlertCircle, Clock, CheckCircle2, Palette } from 'lucide-react';
 import type { GanttTask, GanttSegment, GanttChart, TeamMember, Priority, TaskStatus } from '../../types';
 
 interface GanttTaskModalProps {
@@ -12,12 +12,21 @@ interface GanttTaskModalProps {
 }
 
 const COLOR_OPTIONS = [
-  { id: 'indigo', label: 'Indigo', bg: 'bg-indigo-500', border: 'border-indigo-600', ring: 'ring-indigo-500' },
-  { id: 'emerald', label: 'Emerald', bg: 'bg-emerald-500', border: 'border-emerald-600', ring: 'ring-emerald-500' },
-  { id: 'amber', label: 'Amber', bg: 'bg-amber-500', border: 'border-amber-600', ring: 'ring-amber-500' },
-  { id: 'sky', label: 'Sky', bg: 'bg-sky-500', border: 'border-sky-600', ring: 'ring-sky-500' },
-  { id: 'violet', label: 'Violet', bg: 'bg-violet-500', border: 'border-violet-600', ring: 'ring-violet-500' },
-  { id: 'rose', label: 'Rose', bg: 'bg-rose-500', border: 'border-rose-600', ring: 'ring-rose-500' },
+  { id: 'indigo', label: 'Indigo', bg: 'bg-indigo-500', hex: '#6366f1', ring: 'ring-indigo-500' },
+  { id: 'blue', label: 'Blue', bg: 'bg-blue-600', hex: '#2563eb', ring: 'ring-blue-600' },
+  { id: 'sky', label: 'Sky', bg: 'bg-sky-500', hex: '#0ea5e9', ring: 'ring-sky-500' },
+  { id: 'cyan', label: 'Cyan', bg: 'bg-cyan-500', hex: '#06b6d4', ring: 'ring-cyan-500' },
+  { id: 'teal', label: 'Teal', bg: 'bg-teal-500', hex: '#14b8a6', ring: 'ring-teal-500' },
+  { id: 'emerald', label: 'Emerald', bg: 'bg-emerald-500', hex: '#10b981', ring: 'ring-emerald-500' },
+  { id: 'lime', label: 'Lime', bg: 'bg-lime-500', hex: '#84cc16', ring: 'ring-lime-500' },
+  { id: 'amber', label: 'Amber', bg: 'bg-amber-500', hex: '#f59e0b', ring: 'ring-amber-500' },
+  { id: 'orange', label: 'Orange', bg: 'bg-orange-500', hex: '#f97316', ring: 'ring-orange-500' },
+  { id: 'red', label: 'Red', bg: 'bg-red-500', hex: '#ef4444', ring: 'ring-red-500' },
+  { id: 'rose', label: 'Rose', bg: 'bg-rose-500', hex: '#f43f5e', ring: 'ring-rose-500' },
+  { id: 'fuchsia', label: 'Fuchsia', bg: 'bg-fuchsia-500', hex: '#d946ef', ring: 'ring-fuchsia-500' },
+  { id: 'purple', label: 'Purple', bg: 'bg-purple-500', hex: '#a855f7', ring: 'ring-purple-500' },
+  { id: 'violet', label: 'Violet', bg: 'bg-violet-500', hex: '#8b5cf6', ring: 'ring-violet-500' },
+  { id: 'slate', label: 'Slate', bg: 'bg-slate-600', hex: '#475569', ring: 'ring-slate-600' },
 ];
 
 export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
@@ -156,9 +165,9 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
         id: task?.id || `gt-${Date.now()}`,
         title: title.trim(),
         description: description.trim(),
-        assigned_to: assignedTo,
-        priority,
-        status,
+        assigned_to: '',
+        priority: 'medium',
+        status: (segments.every((s) => s.progress === 100) ? 'completed' : segments.some((s) => s.progress > 0) ? 'in_progress' : 'pending'),
         color,
         segments,
         created_at: task?.created_at || new Date().toISOString(),
@@ -233,56 +242,22 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
             />
           </div>
 
-          {/* Row: Assignee, Priority, Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1.5">Assignee</label>
-              <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
-              >
-                <option value="">Unassigned</option>
-                {team.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.designation})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1.5">Priority</label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
-                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
-              >
-                <option value="urgent">Urgent</option>
-                <option value="standard">Standard</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1.5">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as TaskStatus)}
-                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
-              >
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          </div>
-
           {/* Color theme */}
           <div>
-            <label className="block text-xs font-semibold text-zinc-700 mb-1.5">Timeline Bar Color</label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-zinc-700">Task Timeline Color</label>
+              <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <span>Selected:</span>
+                <span
+                  className="inline-block w-3.5 h-3.5 rounded-full border border-zinc-300"
+                  style={{
+                    backgroundColor:
+                      COLOR_OPTIONS.find((c) => c.id === color)?.hex || (color.startsWith('#') ? color : '#6366f1'),
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 p-2 bg-zinc-50 rounded-xl border border-zinc-200">
               {COLOR_OPTIONS.map((c) => (
                 <button
                   key={c.id}
@@ -290,12 +265,30 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
                   onClick={() => setColor(c.id)}
                   title={c.label}
                   className={`w-7 h-7 rounded-lg ${c.bg} transition cursor-pointer flex items-center justify-center ${
-                    color === c.id ? `ring-2 ring-offset-2 ${c.ring} scale-110 shadow-xs` : 'opacity-70 hover:opacity-100'
+                    color === c.id ? `ring-2 ring-offset-2 ${c.ring} scale-110 shadow-xs` : 'opacity-75 hover:opacity-100'
                   }`}
                 >
                   {color === c.id && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
                 </button>
               ))}
+
+              {/* Custom Color Picker Swatch */}
+              <label
+                title="Custom Hex Color"
+                className={`relative w-7 h-7 rounded-lg border border-dashed border-zinc-300 hover:border-zinc-500 transition cursor-pointer flex items-center justify-center ${
+                  color.startsWith('#') ? 'ring-2 ring-offset-2 ring-zinc-900 scale-110 shadow-xs' : ''
+                }`}
+                style={color.startsWith('#') ? { backgroundColor: color } : {}}
+              >
+                <input
+                  type="color"
+                  value={color.startsWith('#') ? color : '#6366f1'}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                />
+                {!color.startsWith('#') && <Palette className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />}
+                {color.startsWith('#') && <CheckCircle2 className="w-3.5 h-3.5 text-white pointer-events-none" />}
+              </label>
             </div>
           </div>
 

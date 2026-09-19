@@ -3,32 +3,29 @@ import {
   CalendarRange,
   Plus,
   Search,
-  ChevronLeft,
-  ChevronRight,
-  Filter,
+  ArrowLeft,
   Trash2,
   Edit2,
   Calendar,
-  Clock,
-  CheckCircle2,
-  AlertTriangle,
-  FolderKanban,
+  Download,
   Building,
-  User,
+  CheckCircle2,
+  FolderKanban,
   ExternalLink,
-  Layers,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
+  ChevronRight,
+  Clock,
+  Loader2,
 } from 'lucide-react';
-import type { GanttChart, GanttTask, GanttSegment, Project, TeamMember, Priority, TaskStatus } from '../types';
+import type { GanttChart, GanttTask, GanttSegment, Project, TeamMember, CompanySettings } from '../types';
+import { exportGanttToA3Pdf } from '../utils/ganttPdfExport';
 
 interface GanttChartViewProps {
   charts: GanttChart[];
   projects: Project[];
   team: TeamMember[];
-  selectedChartId?: string;
-  onSelectChart?: (chartId: string) => void;
+  companySettings?: CompanySettings | null;
+  selectedChartId?: string | null;
+  onSelectChart?: (chartId: string | null) => void;
   onOpenNewChart: (projectId?: string) => void;
   onOpenTaskModal: (chart: GanttChart, task?: GanttTask) => void;
   onDeleteChart: (chartId: string) => Promise<void> | void;
@@ -39,7 +36,7 @@ interface GanttChartViewProps {
 export const GanttChartView: React.FC<GanttChartViewProps> = ({
   charts,
   projects,
-  team,
+  companySettings,
   selectedChartId,
   onSelectChart,
   onOpenNewChart,
@@ -48,41 +45,29 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   onDeleteTask,
   onViewProjectDetail,
 }) => {
-  // Current active chart
+  // Navigation mode: 'cards' or 'details'
+  // If selectedChartId is provided, show details for that chart. Otherwise, show cards.
   const activeChart = useMemo(() => {
-    if (selectedChartId) {
-      const found = charts.find((c) => c.id === selectedChartId || c.project_id === selectedChartId);
-      if (found) return found;
-    }
-    return charts[0] || null;
+    if (!selectedChartId) return null;
+    return charts.find((c) => c.id === selectedChartId || c.project_id === selectedChartId) || null;
   }, [charts, selectedChartId]);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all');
-  const [zoomLevel, setZoomLevel] = useState<'day' | 'week'>('day'); // column width
-  const timelineScrollRef = useRef<HTMLDivElement>(null);
-  const taskListScrollRef = useRef<HTMLDivElement>(null);
+  // States
+  const [cardsSearchQuery, setCardsSearchQuery] = useState('');
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
+  const [previewMode, setPreviewMode] = useState<'days' | 'weeks'>('days');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
-  // Synchronize vertical scroll between task list and timeline grid
-  const handleScrollTimeline = () => {
-    if (timelineScrollRef.current && taskListScrollRef.current) {
-      taskListScrollRef.current.scrollTop = timelineScrollRef.current.scrollTop;
-    }
-  };
+  // Single unified scroll container ref
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleScrollTaskList = () => {
-    if (timelineScrollRef.current && taskListScrollRef.current) {
-      timelineScrollRef.current.scrollTop = taskListScrollRef.current.scrollTop;
-    }
-  };
-
-  // Associated Project
+  // Associated Project for active chart
   const currentProject = useMemo(() => {
     if (!activeChart) return null;
     return projects.find((p) => p.id === activeChart.project_id) || null;
   }, [activeChart, projects]);
 
-  // Generate calendar days spanning the full chart duration (start_date to end_date)
+  // Timeline Days Generation
   const timelineDays = useMemo(() => {
     if (!activeChart || !activeChart.start_date || !activeChart.end_date) return [];
 
@@ -95,675 +80,744 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
 
     const days: Array<{
       dateStr: string;
-      date: Date;
       dayNumber: number;
-      dayOfWeek: number; // 0=Sun, 5=Fri, 6=Sat
+      dayOfWeek: number; // 0=Sun, 5=Fri
       dayInitial: string;
-      isWeekend: boolean; // Friday is weekend
-      isFirstOfMonth: boolean;
+      isWeekend: boolean;
       monthYear: string;
       monthShort: string;
     }> = [];
 
     const curr = new Date(start);
-    // Day names starting Saturday
-    const dayInitials = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // standard JS 0=Sun..6=Sat
+    const dayInitials = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
     while (curr <= end) {
       const dateStr = curr.toISOString().slice(0, 10);
-      const dayOfWeek = curr.getDay(); // 0 is Sun, 5 is Fri, 6 is Sat
-      const isWeekend = dayOfWeek === 5; // Friday is weekend
-
+      const dayOfWeek = curr.getDay();
       days.push({
         dateStr,
-        date: new Date(curr),
         dayNumber: curr.getDate(),
         dayOfWeek,
         dayInitial: dayInitials[dayOfWeek],
-        isWeekend,
-        isFirstOfMonth: curr.getDate() === 1,
+        isWeekend: dayOfWeek === 5,
         monthYear: curr.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         monthShort: curr.toLocaleDateString('en-US', { month: 'short' }),
       });
-
       curr.setDate(curr.getDate() + 1);
     }
 
     return days;
   }, [activeChart]);
 
-  // Group days into months for the top month header
+  // Group days into months for month header
   const monthHeaders = useMemo(() => {
     if (timelineDays.length === 0) return [];
-    const months: Array<{ monthYear: string; daysCount: number; startIndex: number }> = [];
+    const months: Array<{ monthYear: string; daysCount: number }> = [];
 
     let currentMonth = '';
     let currentCount = 0;
-    let startIndex = 0;
 
-    timelineDays.forEach((day, index) => {
+    timelineDays.forEach((day) => {
       if (day.monthYear !== currentMonth) {
         if (currentMonth !== '') {
-          months.push({ monthYear: currentMonth, daysCount: currentCount, startIndex });
+          months.push({ monthYear: currentMonth, daysCount: currentCount });
         }
         currentMonth = day.monthYear;
         currentCount = 1;
-        startIndex = index;
       } else {
         currentCount++;
       }
     });
 
     if (currentCount > 0) {
-      months.push({ monthYear: currentMonth, daysCount: currentCount, startIndex });
+      months.push({ monthYear: currentMonth, daysCount: currentCount });
     }
 
     return months;
   }, [timelineDays]);
 
-  // Day column width based on zoom
-  const dayColWidth = zoomLevel === 'day' ? 38 : 24;
+  // Weeks list for Weeks preview
+  const timelineWeeks = useMemo(() => {
+    if (timelineDays.length === 0) return [];
+    const weeks: Array<{
+      weekNumber: number;
+      startDateStr: string;
+      endDateStr: string;
+      label: string;
+    }> = [];
 
-  // Filter tasks
+    const totalWeeks = Math.ceil(timelineDays.length / 7);
+    for (let w = 0; w < totalWeeks; w++) {
+      const sIdx = w * 7;
+      const eIdx = Math.min(timelineDays.length - 1, sIdx + 6);
+      const sDay = timelineDays[sIdx];
+      const eDay = timelineDays[eIdx];
+      weeks.push({
+        weekNumber: w + 1,
+        startDateStr: sDay.dateStr,
+        endDateStr: eDay.dateStr,
+        label: `W${w + 1}: ${sDay.monthShort} ${sDay.dayNumber} – ${eDay.monthShort} ${eDay.dayNumber}`,
+      });
+    }
+    return weeks;
+  }, [timelineDays]);
+
+  // Column width calculations
+  const dayColWidth = 36;
+  const weekColWidth = 110;
+  const leftColWidth = 280;
+
+  const totalTimelineWidth = useMemo(() => {
+    if (previewMode === 'days') {
+      return timelineDays.length * dayColWidth;
+    }
+    return timelineWeeks.length * weekColWidth;
+  }, [previewMode, timelineDays.length, timelineWeeks.length, dayColWidth, weekColWidth]);
+
+  // Filter tasks (NO assignee, priority, status needed)
   const filteredTasks = useMemo(() => {
     if (!activeChart || !activeChart.tasks) return [];
-    return activeChart.tasks.filter((task) => {
-      const matchesSearch =
-        !searchQuery.trim() ||
-        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.assigned_member?.name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!taskSearchQuery.trim()) return activeChart.tasks;
+    const q = taskSearchQuery.toLowerCase();
+    return activeChart.tasks.filter(
+      (t) => t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)
+    );
+  }, [activeChart, taskSearchQuery]);
 
-      const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [activeChart, searchQuery, statusFilter]);
-
-  // Today string
+  // Today string & index
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const todayIndex = useMemo(() => {
     return timelineDays.findIndex((d) => d.dateStr === todayStr);
   }, [timelineDays, todayStr]);
 
-  // Scroll to today or start of chart when chart is selected
+  // Scroll to today or start when chart opens
   useEffect(() => {
-    if (timelineScrollRef.current) {
-      if (todayIndex > 5) {
-        timelineScrollRef.current.scrollLeft = (todayIndex - 3) * dayColWidth;
+    if (scrollContainerRef.current && activeChart) {
+      if (previewMode === 'days' && todayIndex > 4) {
+        scrollContainerRef.current.scrollLeft = (todayIndex - 2) * dayColWidth;
       } else {
-        timelineScrollRef.current.scrollLeft = 0;
+        scrollContainerRef.current.scrollLeft = 0;
       }
     }
-  }, [activeChart?.id, todayIndex, dayColWidth]);
+  }, [activeChart?.id, previewMode, todayIndex]);
 
-  // Color mapping helper
+  // Color helper supporting 15+ presets and hex colors
   const getColorStyles = (color?: string) => {
-    switch (color) {
-      case 'emerald':
-        return {
-          bar: 'bg-emerald-500 hover:bg-emerald-600 text-white',
-          progress: 'bg-emerald-700',
-          border: 'border-emerald-600',
-          badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-        };
-      case 'amber':
-        return {
-          bar: 'bg-amber-500 hover:bg-amber-600 text-white',
-          progress: 'bg-amber-700',
-          border: 'border-amber-600',
-          badge: 'bg-amber-50 text-amber-900 border-amber-200',
-        };
-      case 'sky':
-        return {
-          bar: 'bg-sky-500 hover:bg-sky-600 text-white',
-          progress: 'bg-sky-700',
-          border: 'border-sky-600',
-          badge: 'bg-sky-50 text-sky-800 border-sky-200',
-        };
-      case 'rose':
-        return {
-          bar: 'bg-rose-500 hover:bg-rose-600 text-white',
-          progress: 'bg-rose-700',
-          border: 'border-rose-600',
-          badge: 'bg-rose-50 text-rose-800 border-rose-200',
-        };
-      case 'violet':
-        return {
-          bar: 'bg-violet-500 hover:bg-violet-600 text-white',
-          progress: 'bg-violet-700',
-          border: 'border-violet-600',
-          badge: 'bg-violet-50 text-violet-800 border-violet-200',
-        };
-      case 'indigo':
-      default:
-        return {
-          bar: 'bg-indigo-600 hover:bg-indigo-700 text-white',
-          progress: 'bg-indigo-800',
-          border: 'border-indigo-700',
-          badge: 'bg-indigo-50 text-indigo-800 border-indigo-200',
-        };
+    if (color?.startsWith('#')) {
+      return {
+        barStyle: { backgroundColor: color },
+        progressStyle: { backgroundColor: 'rgba(0, 0, 0, 0.25)' },
+        borderStyle: { borderColor: color },
+      };
+    }
+    const colorMap: Record<string, { bar: string; progress: string }> = {
+      blue: { bar: 'bg-blue-600', progress: 'bg-blue-800' },
+      sky: { bar: 'bg-sky-500', progress: 'bg-sky-700' },
+      cyan: { bar: 'bg-cyan-500', progress: 'bg-cyan-700' },
+      teal: { bar: 'bg-teal-500', progress: 'bg-teal-700' },
+      emerald: { bar: 'bg-emerald-600', progress: 'bg-emerald-800' },
+      lime: { bar: 'bg-lime-600', progress: 'bg-lime-800' },
+      amber: { bar: 'bg-amber-500', progress: 'bg-amber-700' },
+      orange: { bar: 'bg-orange-500', progress: 'bg-orange-700' },
+      red: { bar: 'bg-red-600', progress: 'bg-red-800' },
+      rose: { bar: 'bg-rose-500', progress: 'bg-rose-700' },
+      fuchsia: { bar: 'bg-fuchsia-600', progress: 'bg-fuchsia-800' },
+      purple: { bar: 'bg-purple-600', progress: 'bg-purple-800' },
+      violet: { bar: 'bg-violet-600', progress: 'bg-violet-800' },
+      slate: { bar: 'bg-slate-600', progress: 'bg-slate-800' },
+      indigo: { bar: 'bg-indigo-600', progress: 'bg-indigo-800' },
+    };
+    const c = colorMap[color || 'indigo'] || colorMap.indigo;
+    return {
+      barClass: c.bar,
+      progressClass: c.progress,
+    };
+  };
+
+  // PDF Export Handler
+  const handleExportPdf = async () => {
+    if (!activeChart) return;
+    try {
+      setIsExportingPdf(true);
+      await exportGanttToA3Pdf({
+        chart: activeChart,
+        project: currentProject,
+        tasks: filteredTasks,
+        previewMode,
+        companySettings,
+      });
+    } catch (err: any) {
+      console.error('Failed to export Gantt PDF:', err);
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
-  // If no charts exist
-  if (charts.length === 0) {
-    return (
-      <div className="bg-white border border-zinc-200 rounded-2xl p-12 text-center shadow-xs max-w-2xl mx-auto my-8">
-        <div className="w-16 h-16 rounded-2xl bg-zinc-100 text-zinc-800 flex items-center justify-center mx-auto mb-4">
-          <CalendarRange className="w-8 h-8 text-amber-500" />
-        </div>
-        <h2 className="text-xl font-bold text-zinc-900 mb-2">No Gantt Charts Yet</h2>
-        <p className="text-sm text-zinc-600 mb-6 max-w-md mx-auto leading-relaxed">
-          Create timeline Gantt charts for your projects with multi-segment task scheduling, work intervals, and visual progress tracking across project durations.
-        </p>
-        <button
-          onClick={() => onOpenNewChart()}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create First Gantt Chart</span>
-        </button>
-      </div>
+  // -------------------------------------------------------------
+  // VIEW 1: PROJECTS WITH GANTT CHART CARDS OVERVIEW (When no chart selected)
+  // -------------------------------------------------------------
+  if (!activeChart) {
+    const filteredCharts = charts.filter((c) => {
+      if (!cardsSearchQuery.trim()) return true;
+      const q = cardsSearchQuery.toLowerCase();
+      const proj = projects.find((p) => p.id === c.project_id);
+      return (
+        c.title.toLowerCase().includes(q) ||
+        c.project_name?.toLowerCase().includes(q) ||
+        proj?.project_name.toLowerCase().includes(q) ||
+        proj?.client?.name.toLowerCase().includes(q)
+      );
+    });
+
+    // Projects that do not have a Gantt chart yet
+    const projectsWithoutGantt = projects.filter(
+      (p) => !charts.some((c) => c.project_id === p.id)
     );
-  }
 
-  // Active chart duration metrics
-  const totalDays = timelineDays.length;
-  const totalTasks = activeChart?.tasks?.length || 0;
-  const totalSegments = (activeChart?.tasks || []).reduce((acc, t) => acc + (t.segments?.length || 0), 0);
-
-  return (
-    <div className="space-y-4">
-      {/* Top Header & Chart Switcher Strip */}
-      <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          {/* Left: Project / Chart Selector */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-zinc-900 text-white flex items-center justify-center shadow-xs shrink-0">
-              <CalendarRange className="w-5 h-5 text-amber-400" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Project Gantt Chart:</span>
-                <select
-                  value={activeChart?.id || ''}
-                  onChange={(e) => onSelectChart && onSelectChart(e.target.value)}
-                  className="text-sm font-bold text-zinc-900 bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 cursor-pointer"
-                >
-                  {charts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.project_name || c.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-zinc-600 font-medium">
-                {currentProject?.client && (
-                  <span className="inline-flex items-center gap-1 text-zinc-700 font-semibold">
-                    <Building className="w-3.5 h-3.5 text-zinc-400" />
-                    {currentProject.client.company || currentProject.client.name}
-                  </span>
-                )}
-                {activeChart?.start_date && activeChart?.end_date && (
-                  <>
-                    <span className="text-zinc-300">&bull;</span>
-                    <span className="inline-flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-zinc-400" />
-                      {activeChart.start_date} to {activeChart.end_date} ({totalDays} days)
-                    </span>
-                  </>
-                )}
-                <span className="text-zinc-300">&bull;</span>
-                <span>
-                  {totalTasks} tasks ({totalSegments} segments)
-                </span>
-              </div>
-            </div>
+    return (
+      <div className="space-y-6">
+        {/* Top Bar for Gantt Tab */}
+        <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900 tracking-tight flex items-center gap-2.5">
+              <CalendarRange className="w-5 h-5 text-amber-500" />
+              Project Gantt Schedules
+            </h1>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Select a project card to view and manage its interactive timeline and milestone segments
+            </p>
           </div>
 
-          {/* Right: Actions */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Zoom Toggle */}
-            <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-xl p-0.5 text-xs font-medium">
-              <button
-                onClick={() => setZoomLevel('day')}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                  zoomLevel === 'day' ? 'bg-white font-bold text-zinc-950 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-                title="Detailed Day Columns"
-              >
-                Day
-              </button>
-              <button
-                onClick={() => setZoomLevel('week')}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                  zoomLevel === 'week' ? 'bg-white font-bold text-zinc-950 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-                title="Compact Columns"
-              >
-                Compact
-              </button>
+          <div className="flex items-center gap-3">
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={cardsSearchQuery}
+                onChange={(e) => setCardsSearchQuery(e.target.value)}
+                placeholder="Search projects..."
+                className="pl-8 pr-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-xl text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-48 sm:w-64"
+              />
             </div>
 
-            {/* Jump to Today */}
-            {todayIndex !== -1 && (
-              <button
-                onClick={() => {
-                  if (timelineScrollRef.current && todayIndex !== -1) {
-                    timelineScrollRef.current.scrollLeft = Math.max(0, (todayIndex - 3) * dayColWidth);
-                  }
-                }}
-                className="px-3 py-1.5 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs"
-              >
-                Today
-              </button>
-            )}
-
-            {/* View Project Details */}
-            {currentProject && onViewProjectDetail && (
-              <button
-                onClick={() => onViewProjectDetail(currentProject.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-semibold transition cursor-pointer"
-                title="Open Project Details"
-              >
-                <FolderKanban className="w-3.5 h-3.5 text-zinc-500" />
-                <span>Project Info</span>
-              </button>
-            )}
-
-            {/* Add Task */}
-            {activeChart && (
-              <button
-                onClick={() => onOpenTaskModal(activeChart)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add Task</span>
-              </button>
-            )}
-
-            {/* Add New Gantt Chart */}
+            {/* Add New Gantt Chart Button */}
             <button
               onClick={() => onOpenNewChart()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 rounded-xl text-xs font-bold transition cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
             >
-              <CalendarRange className="w-3.5 h-3.5 text-amber-600" />
-              <span>+ New Chart</span>
+              <Plus className="w-4 h-4" />
+              <span>+ Add New</span>
             </button>
-
-            {/* Delete current chart */}
-            {activeChart && (
-              <button
-                onClick={() => {
-                  if (confirm(`Delete Gantt chart for "${activeChart.title}"?`)) {
-                    onDeleteChart(activeChart.id);
-                  }
-                }}
-                className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                title="Delete this Gantt chart"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Task Search & Filter Strip */}
-        <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-zinc-500 font-medium">Filter Tasks:</span>
-            <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-lg p-0.5 text-xs">
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={`px-2.5 py-0.5 rounded transition cursor-pointer ${
-                  statusFilter === 'all' ? 'bg-white font-bold text-zinc-900 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                All ({activeChart?.tasks?.length || 0})
-              </button>
-              <button
-                onClick={() => setStatusFilter('in_progress')}
-                className={`px-2.5 py-0.5 rounded transition cursor-pointer ${
-                  statusFilter === 'in_progress' ? 'bg-white font-bold text-sky-900 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                In Progress
-              </button>
-              <button
-                onClick={() => setStatusFilter('pending')}
-                className={`px-2.5 py-0.5 rounded transition cursor-pointer ${
-                  statusFilter === 'pending' ? 'bg-white font-bold text-zinc-900 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Pending
-              </button>
-              <button
-                onClick={() => setStatusFilter('completed')}
-                className={`px-2.5 py-0.5 rounded transition cursor-pointer ${
-                  statusFilter === 'completed' ? 'bg-white font-bold text-emerald-900 shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                Completed
-              </button>
+        {/* Empty State when zero charts exist */}
+        {charts.length === 0 ? (
+          <div className="bg-white border border-zinc-200 rounded-2xl p-12 text-center shadow-xs">
+            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200">
+              <CalendarRange className="w-7 h-7 text-amber-600" />
             </div>
+            <h3 className="text-base font-bold text-zinc-900 mb-1">No Gantt Charts Yet</h3>
+            <p className="text-xs text-zinc-500 max-w-md mx-auto mb-6">
+              Create your first project schedule to track task intervals, milestones, and progress on a timeline.
+            </p>
+            <button
+              onClick={() => onOpenNewChart()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Create First Gantt Chart</span>
+            </button>
           </div>
+        ) : (
+          /* Cards Grid of Projects with Gantt Chart */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredCharts.map((chart) => {
+              const proj = projects.find((p) => p.id === chart.project_id);
+              const tasks = chart.tasks || [];
+              const totalSegments = tasks.reduce((acc, t) => acc + (t.segments?.length || 0), 0);
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tasks, assignees..."
-              className="pl-8 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-44 sm:w-60"
-            />
-          </div>
-        </div>
-      </div>
+              // Calculate overall progress from tasks
+              const avgProgress =
+                tasks.length > 0
+                  ? Math.round(
+                      tasks.reduce((acc, t) => {
+                        const segs = t.segments || [];
+                        const tProg =
+                          segs.length > 0
+                            ? segs.reduce((sAcc, s) => sAcc + (s.progress || 0), 0) / segs.length
+                            : 0;
+                        return acc + tProg;
+                      }, 0) / tasks.length
+                    )
+                  : 0;
 
-      {/* Main Gantt Grid: Synchronized Split-Pane */}
-      <div className="bg-white border border-zinc-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
-        <div className="flex border-b border-zinc-200">
-          {/* Left Table Header: Tasks & Leads */}
-          <div className="w-[300px] sm:w-[340px] shrink-0 border-r border-zinc-200 bg-zinc-50/90 p-3 flex items-center justify-between">
-            <span className="text-xs font-bold text-zinc-800 tracking-tight">Tasks & Segments</span>
-            <span className="text-[11px] font-semibold text-zinc-500">
-              {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          {/* Right Calendar Timeline Header (Month + Days) */}
-          <div
-            ref={timelineScrollRef}
-            onScroll={handleScrollTimeline}
-            className="flex-1 overflow-x-auto overflow-y-hidden select-none"
-            style={{ scrollBehavior: 'smooth' }}
-          >
-            <div style={{ width: `${timelineDays.length * dayColWidth}px` }} className="flex flex-col">
-              {/* Row 1: Month Headers */}
-              <div className="flex border-b border-zinc-200 bg-zinc-50 text-xs font-bold text-zinc-700 divide-x divide-zinc-200 h-7">
-                {monthHeaders.map((m, idx) => (
-                  <div
-                    key={`${m.monthYear}-${idx}`}
-                    style={{ width: `${m.daysCount * dayColWidth}px` }}
-                    className="px-2 flex items-center justify-start text-[11px] font-bold text-zinc-800 uppercase tracking-wider overflow-hidden truncate"
-                  >
-                    {m.monthYear}
-                  </div>
-                ))}
-              </div>
-
-              {/* Row 2: Day Headers (Sat -> Fri weekend colored, no tag) */}
-              <div className="flex bg-zinc-50/50 text-[10px] font-semibold text-zinc-600 divide-x divide-zinc-200 h-8">
-                {timelineDays.map((day, idx) => {
-                  const isToday = day.dateStr === todayStr;
-                  return (
-                    <div
-                      key={day.dateStr}
-                      style={{ width: `${dayColWidth}px` }}
-                      className={`flex flex-col items-center justify-center text-center shrink-0 ${
-                        day.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
-                      } ${isToday ? 'bg-zinc-900 text-white font-bold' : ''}`}
-                      title={`${day.dateStr} (${day.isWeekend ? 'Weekend' : 'Workday'})`}
-                    >
-                      <span className="leading-none text-[9px] opacity-75">{day.dayInitial}</span>
-                      <span className="leading-none font-bold mt-0.5">{day.dayNumber}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Task Rows & Timeline Body */}
-        <div className="flex max-h-[560px] overflow-y-auto" onScroll={handleScrollTaskList} ref={taskListScrollRef}>
-          {/* Left Table Rows */}
-          <div className="w-[300px] sm:w-[340px] shrink-0 border-r border-zinc-200 divide-y divide-zinc-100 bg-white">
-            {filteredTasks.length === 0 ? (
-              <div className="p-8 text-center text-xs text-zinc-500">
-                No tasks match the filter. Click &quot;+ Add Task&quot; above to create one.
-              </div>
-            ) : (
-              filteredTasks.map((task) => {
-                const colorTheme = getColorStyles(task.color);
-                const assignedPerson = team.find((m) => m.id === task.assigned_to) || task.assigned_member;
-                const segCount = task.segments?.length || 0;
-
-                return (
-                  <div
-                    key={task.id}
-                    className="h-16 px-3 flex items-center justify-between gap-2 hover:bg-zinc-50/80 transition group"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${
-                            task.status === 'completed'
-                              ? 'bg-emerald-500'
-                              : task.status === 'in_progress'
-                              ? 'bg-sky-500'
-                              : 'bg-zinc-300'
-                          }`}
-                        />
-                        <h4
-                          onClick={() => activeChart && onOpenTaskModal(activeChart, task)}
-                          className="text-xs font-bold text-zinc-900 truncate hover:text-zinc-700 cursor-pointer"
-                          title={task.title}
-                        >
-                          {task.title}
-                        </h4>
+              return (
+                <div
+                  key={chart.id}
+                  onClick={() => onSelectChart && onSelectChart(chart.id)}
+                  className="bg-white border border-zinc-200 hover:border-zinc-300 rounded-2xl p-5 shadow-xs hover:shadow-md transition cursor-pointer flex flex-col justify-between group relative"
+                >
+                  <div>
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          {proj?.project_type || 'Schedule'}
+                        </span>
+                        <h2 className="text-sm font-bold text-zinc-900 group-hover:text-blue-600 transition truncate mt-1.5">
+                          {proj?.project_name || chart.project_name || chart.title}
+                        </h2>
                       </div>
 
-                      <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-500">
-                        {assignedPerson && (
-                          <span className="flex items-center gap-1 truncate font-medium text-zinc-700">
-                            <User className="w-3 h-3 text-zinc-400 shrink-0" />
-                            {assignedPerson.name}
-                          </span>
-                        )}
-                        <span className="text-zinc-300">&bull;</span>
-                        <span className="font-semibold text-zinc-600">
-                          {segCount} segment{segCount !== 1 ? 's' : ''}
+                      {/* Delete Chart Button on card */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete Gantt chart for "${proj?.project_name || chart.title}"?`)) {
+                            onDeleteChart(chart.id);
+                          }
+                        }}
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
+                        title="Delete Gantt schedule"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Client & Date Info */}
+                    <div className="space-y-1.5 text-xs text-zinc-600 mb-4">
+                      {proj?.client && (
+                        <div className="flex items-center gap-1.5 text-zinc-700 font-medium truncate">
+                          <Building className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span className="truncate">{proj.client.name || proj.client.company}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 text-zinc-500 font-medium">
+                        <Calendar className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <span>
+                          {chart.start_date} &rarr; {chart.end_date}
                         </span>
                       </div>
                     </div>
 
-                    {/* Quick row actions on hover */}
-                    <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition">
-                      <button
-                        onClick={() => activeChart && onOpenTaskModal(activeChart, task)}
-                        className="p-1 rounded text-zinc-400 hover:text-zinc-800 hover:bg-zinc-200/60 transition cursor-pointer"
-                        title="Edit Task & Segments"
+                    {/* Progress Bar */}
+                    <div className="space-y-1.5 pt-3 border-t border-zinc-100">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-zinc-700">Timeline Progress</span>
+                        <span className="font-bold text-zinc-900">{avgProgress}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-zinc-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                          style={{ width: `${avgProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-zinc-500">
+                      {tasks.length} task{tasks.length !== 1 ? 's' : ''} ({totalSegments} segments)
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-zinc-900 group-hover:text-blue-600 transition">
+                      View Gantt &rarr;
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Section: Projects without a schedule yet */}
+        {projectsWithoutGantt.length > 0 && (
+          <div className="mt-8 pt-6 border-t border-zinc-200">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3">
+              Projects Without a Gantt Schedule ({projectsWithoutGantt.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {projectsWithoutGantt.map((p) => (
+                <div
+                  key={p.id}
+                  className="bg-zinc-50/70 border border-dashed border-zinc-300 rounded-xl p-3.5 flex flex-col justify-between"
+                >
+                  <div>
+                    <h3 className="text-xs font-bold text-zinc-800 truncate">{p.project_name}</h3>
+                    <p className="text-[11px] text-zinc-500 truncate mt-0.5">
+                      {p.client?.name || p.location || 'Active Project'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onOpenNewChart(p.id)}
+                    className="mt-3 inline-flex items-center justify-center gap-1.5 w-full py-1.5 bg-white hover:bg-zinc-100 text-zinc-900 border border-zinc-200 rounded-lg text-xs font-bold transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create Schedule</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 2: GANTT CHART DETAILS (Simple Top Bar with Less Text & Moving Segment Bars)
+  // -------------------------------------------------------------
+  const projectName = currentProject?.project_name || activeChart.project_name || activeChart.title;
+  const totalDays = timelineDays.length;
+
+  return (
+    <div className="space-y-4">
+      {/* SIMPLIFIED TOP BAR WITH LESS TEXT */}
+      <div className="bg-white border border-zinc-200 rounded-2xl px-4 py-3 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        {/* Left: Back button & Project Title */}
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => onSelectChart && onSelectChart(null)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition cursor-pointer"
+            title="Back to All Projects"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>All Projects</span>
+          </button>
+
+          <div className="h-4 w-px bg-zinc-200" />
+
+          <div className="min-w-0 flex items-center gap-2">
+            <h1 className="text-sm font-bold text-zinc-900 truncate" title={projectName}>
+              {projectName}
+            </h1>
+            <span className="hidden sm:inline-flex text-[11px] font-semibold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md shrink-0">
+              {activeChart.start_date} &rarr; {activeChart.end_date} ({totalDays}d)
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Preview mode switch (Days/Weeks), Export PDF, + Add Task, Delete */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Days / Weeks Preview Switch */}
+          <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-xl p-0.5 text-xs font-bold">
+            <button
+              onClick={() => setPreviewMode('days')}
+              className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                previewMode === 'days'
+                  ? 'bg-white text-zinc-900 shadow-2xs'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              Days
+            </button>
+            <button
+              onClick={() => setPreviewMode('weeks')}
+              className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                previewMode === 'weeks'
+                  ? 'bg-white text-zinc-900 shadow-2xs'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              Weeks
+            </button>
+          </div>
+
+          {/* Export PDF (Single Page A3 Landscape) */}
+          <button
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Export Single Page A3 Landscape PDF"
+          >
+            {isExportingPdf ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500" />
+            ) : (
+              <Download className="w-3.5 h-3.5 text-zinc-600" />
+            )}
+            <span>Export PDF</span>
+          </button>
+
+          {/* Add Task */}
+          <button
+            onClick={() => onOpenTaskModal(activeChart)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Task</span>
+          </button>
+
+          {/* Delete current chart */}
+          <button
+            onClick={() => {
+              if (confirm(`Delete Gantt schedule for "${projectName}"?`)) {
+                onDeleteChart(activeChart.id);
+                if (onSelectChart) onSelectChart(null);
+              }
+            }}
+            className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+            title="Delete this Gantt chart"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* FILTER STRIP (Search tasks only, no assignee/status clutter) */}
+      <div className="flex items-center justify-between gap-3 px-1">
+        <span className="text-xs text-zinc-500 font-medium">
+          Showing {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
+        </span>
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={taskSearchQuery}
+            onChange={(e) => setTaskSearchQuery(e.target.value)}
+            placeholder="Search tasks..."
+            className="pl-8 pr-3 py-1 text-xs bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-48 sm:w-60"
+          />
+        </div>
+      </div>
+
+      {/* MAIN UNIFIED GANTT GRID CONTAINER: Segment bars move with calendar! */}
+      <div
+        ref={scrollContainerRef}
+        className="bg-white border border-zinc-200 rounded-2xl shadow-xs overflow-x-auto overflow-y-auto max-h-[620px] select-none relative"
+      >
+        <div
+          style={{ minWidth: `${leftColWidth + totalTimelineWidth}px` }}
+          className="relative divide-y divide-zinc-200"
+        >
+          {/* --- STICKY TIMELINE HEADER --- */}
+          <div className="sticky top-0 z-30 flex bg-zinc-50 border-b border-zinc-200 shadow-2xs">
+            {/* Top-Left Corner Cell: Sticky to BOTH top and left */}
+            <div
+              style={{ width: `${leftColWidth}px` }}
+              className="sticky left-0 z-40 bg-zinc-100 border-r border-zinc-200 px-3 py-2.5 flex items-center justify-between shrink-0"
+            >
+              <span className="text-xs font-bold text-zinc-900">Tasks</span>
+              <span className="text-[11px] font-semibold text-zinc-500">
+                {filteredTasks.length} total
+              </span>
+            </div>
+
+            {/* Right Header: Days or Weeks */}
+            {previewMode === 'days' ? (
+              <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex flex-col">
+                {/* Month Row */}
+                <div className="flex border-b border-zinc-200 h-6 text-[11px] font-bold text-zinc-700 divide-x divide-zinc-200 bg-zinc-100/70">
+                  {monthHeaders.map((m, idx) => (
+                    <div
+                      key={`${m.monthYear}-${idx}`}
+                      style={{ width: `${m.daysCount * dayColWidth}px` }}
+                      className="px-2 flex items-center text-[10px] uppercase font-bold text-zinc-700 tracking-wider truncate"
+                    >
+                      {m.monthYear}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Day Row */}
+                <div className="flex h-7 text-[10px] font-semibold text-zinc-600 divide-x divide-zinc-200">
+                  {timelineDays.map((day) => {
+                    const isToday = day.dateStr === todayStr;
+                    return (
+                      <div
+                        key={day.dateStr}
+                        style={{ width: `${dayColWidth}px` }}
+                        className={`flex flex-col items-center justify-center shrink-0 ${
+                          day.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
+                        } ${isToday ? 'bg-zinc-900 text-white font-bold' : ''}`}
+                        title={`${day.dateStr} (${day.isWeekend ? 'Weekend' : 'Workday'})`}
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (activeChart && confirm(`Delete task "${task.title}"?`)) {
-                            onDeleteTask(activeChart.id, task.id);
-                          }
-                        }}
-                        className="p-1 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                        title="Delete Task"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        <span className="leading-none text-[8px] opacity-75">{day.dayInitial}</span>
+                        <span className="leading-none font-bold mt-0.5">{day.dayNumber}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* Weeks Preview Header */
+              <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex h-13 divide-x divide-zinc-200">
+                {timelineWeeks.map((week) => (
+                  <div
+                    key={week.weekNumber}
+                    style={{ width: `${weekColWidth}px` }}
+                    className="flex flex-col items-center justify-center p-1 text-center shrink-0 bg-zinc-50"
+                  >
+                    <span className="text-xs font-bold text-zinc-900">Week {week.weekNumber}</span>
+                    <span className="text-[10px] text-zinc-500 mt-0.5">
+                      {week.startDateStr.slice(5)} - {week.endDateStr.slice(5)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* --- TASK ROWS & TIMELINE SEGMENTS --- */}
+          <div className="divide-y divide-zinc-100">
+            {filteredTasks.length === 0 ? (
+              <div className="p-8 text-center text-xs text-zinc-500">
+                No tasks match your search query. Click <strong>+ Add Task</strong> above to add one.
+              </div>
+            ) : (
+              filteredTasks.map((task) => {
+                const colorStyles = getColorStyles(task.color);
+                const segments = task.segments || [];
+
+                return (
+                  <div
+                    key={task.id}
+                    className="flex h-15 relative group hover:bg-zinc-50/50 transition items-center"
+                  >
+                    {/* Sticky Left Task Title Column: Clean, NO assignee, NO priority, NO status */}
+                    <div
+                      style={{ width: `${leftColWidth}px` }}
+                      className="sticky left-0 z-20 bg-white group-hover:bg-zinc-50 transition border-r border-zinc-200 px-3 h-full flex items-center justify-between gap-2 shrink-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-zinc-900 truncate" title={task.title}>
+                          {task.title}
+                        </div>
+                        {task.description && (
+                          <div className="text-[10px] text-zinc-400 truncate mt-0.5">
+                            {task.description}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Edit & Delete Action Buttons */}
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                        <button
+                          onClick={() => onOpenTaskModal(activeChart, task)}
+                          className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
+                          title="Edit Task"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete task "${task.title}"?`)) {
+                              onDeleteTask(activeChart.id, task.id);
+                            }
+                          }}
+                          className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-100 rounded cursor-pointer transition"
+                          title="Delete Task"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Timeline Grid: Day/Week Columns and Segment Bars IN THE SAME SCROLL FLOW */}
+                    <div
+                      style={{ width: `${totalTimelineWidth}px` }}
+                      className="shrink-0 relative h-full flex items-center"
+                    >
+                      {/* Background Column Lines & Weekend Tints */}
+                      <div className="absolute inset-0 flex divide-x divide-zinc-100 pointer-events-none">
+                        {previewMode === 'days'
+                          ? timelineDays.map((day) => (
+                              <div
+                                key={day.dateStr}
+                                style={{ width: `${dayColWidth}px` }}
+                                className={`h-full shrink-0 ${
+                                  day.isWeekend ? 'bg-amber-50/35' : ''
+                                } ${day.dateStr === todayStr ? 'bg-zinc-100/40' : ''}`}
+                              />
+                            ))
+                          : timelineWeeks.map((w) => (
+                              <div
+                                key={w.weekNumber}
+                                style={{ width: `${weekColWidth}px` }}
+                                className="h-full shrink-0 border-r border-zinc-100"
+                              />
+                            ))}
+                      </div>
+
+                      {/* Today Marker Line (In Days view) */}
+                      {previewMode === 'days' && todayIndex !== -1 && (
+                        <div
+                          style={{ left: `${todayIndex * dayColWidth + dayColWidth / 2}px` }}
+                          className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 pointer-events-none opacity-80"
+                        />
+                      )}
+
+                      {/* TASK SEGMENT BARS */}
+                      {segments.map((seg, sIdx) => {
+                        const chartStart = new Date(activeChart.start_date);
+                        const segStart = new Date(seg.start_date);
+                        const segEnd = new Date(seg.end_date);
+
+                        if (isNaN(segStart.getTime()) || isNaN(segEnd.getTime())) return null;
+
+                        const startOffsetDays = Math.max(
+                          0,
+                          Math.round((segStart.getTime() - chartStart.getTime()) / (1000 * 60 * 60 * 24))
+                        );
+                        const durationDays = Math.max(
+                          1,
+                          Math.round((segEnd.getTime() - segStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+                        );
+
+                        let leftPx = 0;
+                        let widthPx = 0;
+
+                        if (previewMode === 'days') {
+                          leftPx = startOffsetDays * dayColWidth;
+                          widthPx = Math.max(dayColWidth, durationDays * dayColWidth);
+                        } else {
+                          leftPx = (startOffsetDays / 7) * weekColWidth;
+                          widthPx = Math.max(20, (durationDays / 7) * weekColWidth);
+                        }
+
+                        return (
+                          <div
+                            key={sIdx}
+                            onClick={() => onOpenTaskModal(activeChart, task)}
+                            style={{
+                              left: `${leftPx}px`,
+                              width: `${widthPx}px`,
+                              ...(colorStyles.barStyle || {}),
+                            }}
+                            className={`absolute h-8 rounded-lg ${
+                              colorStyles.barClass || 'bg-indigo-600'
+                            } text-white shadow-xs flex items-center justify-between px-2 text-[11px] font-bold cursor-pointer hover:scale-[1.01] hover:shadow-md transition z-10 overflow-hidden group/bar`}
+                            title={`${task.title} (${seg.start_date} to ${seg.end_date}): ${seg.progress}%`}
+                          >
+                            {/* Inner Progress Fill */}
+                            <div
+                              style={{
+                                width: `${seg.progress}%`,
+                                ...(colorStyles.progressStyle || {}),
+                              }}
+                              className={`absolute inset-y-0 left-0 ${
+                                colorStyles.progressClass || 'bg-black/20'
+                              } transition-all pointer-events-none`}
+                            />
+
+                            {/* Label */}
+                            <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
+                              {widthPx > 70 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : `${seg.progress}%`}
+                            </span>
+
+                            {/* Progress % */}
+                            <span className="relative z-10 text-[10px] font-bold shrink-0">
+                              {seg.progress}%
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
               })
             )}
-
-            {/* Add Task Button at bottom of table */}
-            {activeChart && (
-              <button
-                onClick={() => onOpenTaskModal(activeChart)}
-                className="w-full h-12 flex items-center justify-center gap-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 transition border-t border-dashed border-zinc-200 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 text-zinc-500" />
-                <span>+ Add Task</span>
-              </button>
-            )}
-          </div>
-
-          {/* Right Calendar Grid Rows */}
-          <div className="flex-1 overflow-x-hidden">
-            <div
-              style={{ width: `${timelineDays.length * dayColWidth}px` }}
-              className="divide-y divide-zinc-100 relative"
-            >
-              {filteredTasks.map((task) => {
-                const colorTheme = getColorStyles(task.color);
-                const segments = task.segments || [];
-
-                return (
-                  <div key={task.id} className="h-16 relative flex items-center group">
-                    {/* Background Day Columns & Weekend Tints */}
-                    <div className="absolute inset-0 flex divide-x divide-zinc-100 pointer-events-none">
-                      {timelineDays.map((day) => (
-                        <div
-                          key={day.dateStr}
-                          style={{ width: `${dayColWidth}px` }}
-                          className={`h-full shrink-0 ${
-                            day.isWeekend ? 'bg-amber-50/40' : ''
-                          } ${day.dateStr === todayStr ? 'bg-zinc-100/40' : ''}`}
-                        />
-                      ))}
-                    </div>
-
-                    {/* Today Vertical Line Marker */}
-                    {todayIndex !== -1 && (
-                      <div
-                        style={{ left: `${todayIndex * dayColWidth + dayColWidth / 2}px` }}
-                        className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 pointer-events-none opacity-80"
-                      />
-                    )}
-
-                    {/* RENDER TASK SEGMENTS */}
-                    {segments.map((seg, sIdx) => {
-                      // Find start and end day index in timeline
-                      const sIndex = timelineDays.findIndex((d) => d.dateStr === seg.start_date);
-                      const eIndex = timelineDays.findIndex((d) => d.dateStr === seg.end_date);
-
-                      if (sIndex === -1 && eIndex === -1) {
-                        return null;
-                      }
-
-                      // Clamp to timeline range
-                      const startIndex = Math.max(0, sIndex === -1 ? 0 : sIndex);
-                      const endIndex = Math.min(
-                        timelineDays.length - 1,
-                        eIndex === -1 ? timelineDays.length - 1 : eIndex
-                      );
-
-                      const leftPx = startIndex * dayColWidth + 2;
-                      const widthPx = Math.max(dayColWidth - 4, (endIndex - startIndex + 1) * dayColWidth - 4);
-                      const progress = seg.progress ?? 0;
-
-                      // Gap connector to next segment
-                      const nextSeg = segments[sIdx + 1];
-                      let connectorLeft = 0;
-                      let connectorWidth = 0;
-                      if (nextSeg) {
-                        const nextStartIdx = timelineDays.findIndex((d) => d.dateStr === nextSeg.start_date);
-                        if (nextStartIdx > endIndex) {
-                          connectorLeft = (endIndex + 1) * dayColWidth;
-                          connectorWidth = (nextStartIdx - endIndex - 1) * dayColWidth;
-                        }
-                      }
-
-                      return (
-                        <React.Fragment key={seg.id || sIdx}>
-                          {/* Segment Bar */}
-                          <div
-                            style={{
-                              left: `${leftPx}px`,
-                              width: `${widthPx}px`,
-                              top: '12px',
-                              height: '40px',
-                            }}
-                            onClick={() => activeChart && onOpenTaskModal(activeChart, task)}
-                            className={`absolute rounded-xl ${colorTheme.bar} shadow-xs flex items-center px-2.5 overflow-hidden cursor-pointer transition transform hover:scale-y-105 z-20 group/seg`}
-                            title={`${task.title} - ${seg.name || `Segment ${sIdx + 1}`}\n${seg.start_date} to ${
-                              seg.end_date
-                            } (${progress}% completed)`}
-                          >
-                            {/* Inner Progress Fill */}
-                            {progress > 0 && (
-                              <div
-                                style={{ width: `${progress}%` }}
-                                className={`absolute left-0 top-0 bottom-0 ${colorTheme.progress} opacity-40`}
-                              />
-                            )}
-
-                            {/* Label inside the bar */}
-                            <div className="relative z-10 flex items-center justify-between w-full text-white text-[11px] font-bold leading-none truncate">
-                              <span className="truncate pr-1">
-                                {seg.name || task.title}
-                              </span>
-                              {progress > 0 && (
-                                <span className="text-[10px] opacity-90 shrink-0 font-medium">{progress}%</span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Gap Connector (for interval between segments) */}
-                          {connectorWidth > 0 && (
-                            <div
-                              style={{
-                                left: `${connectorLeft}px`,
-                                width: `${connectorWidth}px`,
-                                top: '30px',
-                              }}
-                              className="absolute h-0.5 border-t-2 border-dashed border-zinc-400 z-15 flex items-center justify-center pointer-events-auto group/gap"
-                              title={`Interval / Scheduled Gap: ${nextSeg.start_date} resumes`}
-                            >
-                              <span className="opacity-0 group-hover/gap:opacity-100 transition absolute -top-4 text-[9px] font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-white shadow-xs whitespace-nowrap">
-                                Gap Interval
-                              </span>
-                            </div>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-
-              {/* Empty placeholder row if tasks list is empty */}
-              {filteredTasks.length === 0 && (
-                <div className="h-32 flex items-center justify-center text-xs text-zinc-400">
-                  Timeline ready for task scheduling
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom Legend Bar */}
-        <div className="px-4 py-2.5 bg-zinc-50 border-t border-zinc-200 flex flex-wrap items-center justify-between text-xs text-zinc-500">
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="font-semibold text-zinc-700">Legend:</span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" />
-              <span>Friday Weekend</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-4 h-0.5 border-t-2 border-dashed border-zinc-500" />
-              <span>Gap Interval between Segments</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-0.5 h-3 bg-rose-500" />
-              <span>Today Marker</span>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-zinc-500">
-            Click any task segment to edit dates, duration, progress, or add new intervals.
           </div>
         </div>
       </div>

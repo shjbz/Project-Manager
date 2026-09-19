@@ -260,7 +260,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post('/api/auth/change-password', requireAuth, (req, res) => {
+  const changePasswordHandler = (req: express.Request, res: express.Response) => {
     const { currentPassword, newPassword } = req.body;
     if (!newPassword || typeof newPassword !== 'string' || newPassword.trim().length < 4) {
       res.status(400).json({ error: 'New password must be at least 4 characters' });
@@ -279,7 +279,11 @@ async function startServer() {
     }
 
     res.json({ success: true, message: 'Company password updated successfully' });
-  });
+  };
+  app.post('/api/auth/change-password', requireAuth, changePasswordHandler);
+  app.put('/api/auth/change-password', requireAuth, changePasswordHandler);
+  app.put('/api/company/password', requireAuth, changePasswordHandler);
+  app.post('/api/company/password', requireAuth, changePasswordHandler);
 
   // --- Company Settings (Spec #43, #59) ---
   app.get('/api/company', requireAuth, (req, res) => {

@@ -186,80 +186,6 @@ function ensureTables($pdo) {
             VALUES ('company-main', 'Falcon Engineering & Construction', 'House 42, Road 11, Block D, Banani, Dhaka-1213', '+880 1711-000000', 'operations@falconeng.com', 'Centralized Workspace & Operations Command', '৳', 0, :c, :u)");
         $insert->execute([':c' => $now, ':u' => $now]);
     }
-
-    // Check if initial gantt charts exist
-    try {
-        $ganttCount = (int)$pdo->query("SELECT COUNT(*) FROM gantt_charts")->fetchColumn();
-        if ($ganttCount === 0) {
-            $now = gmdate('Y-m-d\TH:i:s\Z');
-            $initialTasks = json_encode([
-                [
-                    'id' => 'gtask-1',
-                    'title' => 'Structural Survey & Soil Investigation',
-                    'start_date' => '2026-09-01',
-                    'end_date' => '2026-09-12',
-                    'progress' => 100,
-                    'status' => 'completed',
-                    'assigned_to' => 'team-1',
-                    'color' => '#10b981'
-                ],
-                [
-                    'id' => 'gtask-2',
-                    'title' => 'Sub-structure Piling & Deep Excavation',
-                    'start_date' => '2026-09-13',
-                    'end_date' => '2026-09-28',
-                    'progress' => 65,
-                    'status' => 'in_progress',
-                    'assigned_to' => 'team-2',
-                    'color' => '#3b82f6'
-                ],
-                [
-                    'id' => 'gtask-3',
-                    'title' => 'Raft Foundation Casting & Waterproofing',
-                    'start_date' => '2026-09-29',
-                    'end_date' => '2026-10-15',
-                    'progress' => 20,
-                    'status' => 'pending',
-                    'assigned_to' => 'team-3',
-                    'color' => '#f59e0b'
-                ],
-                [
-                    'id' => 'gtask-4',
-                    'title' => 'Superstructure Column & Slab Casting',
-                    'start_date' => '2026-10-16',
-                    'end_date' => '2026-10-31',
-                    'progress' => 0,
-                    'status' => 'pending',
-                    'assigned_to' => 'team-4',
-                    'color' => '#8b5cf6'
-                ],
-                [
-                    'id' => 'gtask-5',
-                    'title' => 'Final Inspection, Quality Audit & Handover',
-                    'start_date' => '2026-11-01',
-                    'end_date' => '2026-11-15',
-                    'progress' => 0,
-                    'status' => 'pending',
-                    'assigned_to' => 'team-1',
-                    'color' => '#ef4444'
-                ]
-            ]);
-            $ins = $pdo->prepare("INSERT INTO gantt_charts (id, project_id, project_name, title, start_date, end_date, notes, tasks, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $ins->execute([
-                'gantt-1',
-                'proj-1',
-                'Banani Commercial Tower',
-                'Master Construction Timeline',
-                '2026-09-01',
-                '2026-11-15',
-                'Operational timeline persisted in Hostinger MySQL.',
-                $initialTasks,
-                $now,
-                $now
-            ]);
-        }
-    } catch (Exception $e) {}
 }
 
 ensureTables($pdo);
@@ -542,6 +468,38 @@ try {
             echo json_encode($row);
             exit;
         }
+    }
+
+    // 6b. Change Password (company/password or auth/change-password)
+    if (($endpoint === 'company/password' || $endpoint === 'auth/change-password') && ($method === 'PUT' || $method === 'POST')) {
+        $input = getJsonInput();
+        $currentPassword = trim($input['currentPassword'] ?? $input['current_password'] ?? '');
+        $newPassword = trim($input['newPassword'] ?? $input['new_password'] ?? '');
+
+        if (strlen($newPassword) < 4) {
+            http_response_code(400);
+            echo json_encode(['error' => 'New password must be at least 4 characters long']);
+            exit;
+        }
+
+        $stmt = $pdo->query("SELECT password_hash, is_password_set FROM company_settings WHERE id = 'company-main' LIMIT 1");
+        $settings = $stmt->fetch();
+
+        if ($settings && !empty($settings['password_hash'])) {
+            if (empty($currentPassword) || !verifyPassword($currentPassword, $settings['password_hash'])) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Current password verification failed']);
+                exit;
+            }
+        }
+
+        $newHash = hashPassword($newPassword);
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $up = $pdo->prepare("UPDATE company_settings SET password_hash = :h, is_password_set = 1, updated_at = :u WHERE id = 'company-main'");
+        $up->execute([':h' => $newHash, ':u' => $now]);
+
+        echo json_encode(['success' => true, 'message' => 'Password updated successfully']);
+        exit;
     }
 
     // 7. GET dashboard & dashboard/stats

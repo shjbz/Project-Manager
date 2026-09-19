@@ -861,7 +861,7 @@ class MySQLService {
   public async removeGanttChart(id: string): Promise<void> {
     if (!this.pool || !this.isConnected) return;
     try {
-      await this.pool.query('DELETE FROM gantt_charts WHERE id = ?', [id]);
+      await this.pool.query('DELETE FROM gantt_charts WHERE id = ? OR project_id = ?', [id, id]);
     } catch (err) {
       console.error('[MySQL] removeGanttChart error:', err);
     }
