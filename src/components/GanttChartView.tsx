@@ -663,18 +663,6 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             <span>{showCompletion ? 'Completion: On' : 'Completion: Off'}</span>
           </button>
 
-          {/* Edit Chart Button */}
-          {onEditChart && (
-            <button
-              onClick={() => onEditChart(activeChart)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
-              title="Edit schedule name, dates, duration and notes"
-            >
-              <Edit2 className="w-3.5 h-3.5 text-zinc-700" />
-              <span>Edit Chart</span>
-            </button>
-          )}
-
           {/* Export PDF Button */}
           <button
             onClick={handleExportPdf}
@@ -698,6 +686,17 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             <Plus className="w-3.5 h-3.5" />
             <span>+ Add Task</span>
           </button>
+
+          {/* Edit current chart icon */}
+          {onEditChart && (
+            <button
+              onClick={() => onEditChart(activeChart)}
+              className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
+              title="Edit schedule name, dates, duration and notes"
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Delete current chart */}
           <button
