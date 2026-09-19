@@ -10,6 +10,7 @@ import {
   Download,
   Building,
   CheckCircle2,
+  AlertCircle,
   FolderKanban,
   ExternalLink,
   ChevronRight,
@@ -57,9 +58,11 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [previewMode, setPreviewMode] = useState<'days' | 'weeks'>('days');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportNotice, setExportNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Single unified scroll container ref
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Synchronized scroll refs: Left task list (no horizontal scrollbar) and right calendar (with horizontal scrollbar)
+  const taskListRef = useRef<HTMLDivElement>(null);
+  const calendarScrollRef = useRef<HTMLDivElement>(null);
 
   // Associated Project for active chart
   const currentProject = useMemo(() => {
@@ -143,102 +146,126 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
       weekNumber: number;
       startDateStr: string;
       endDateStr: string;
-      label: string;
+      dayStartIndex: number;
+      dayEndIndex: number;
+      daysCount: number;
     }> = [];
 
-    const totalWeeks = Math.ceil(timelineDays.length / 7);
-    for (let w = 0; w < totalWeeks; w++) {
+    const totalDays = timelineDays.length;
+    const numWeeks = Math.ceil(totalDays / 7);
+
+    for (let w = 0; w < numWeeks; w++) {
       const sIdx = w * 7;
-      const eIdx = Math.min(timelineDays.length - 1, sIdx + 6);
-      const sDay = timelineDays[sIdx];
-      const eDay = timelineDays[eIdx];
+      const eIdx = Math.min(totalDays - 1, sIdx + 6);
       weeks.push({
         weekNumber: w + 1,
-        startDateStr: sDay.dateStr,
-        endDateStr: eDay.dateStr,
-        label: `W${w + 1}: ${sDay.monthShort} ${sDay.dayNumber} – ${eDay.monthShort} ${eDay.dayNumber}`,
+        startDateStr: timelineDays[sIdx].dateStr,
+        endDateStr: timelineDays[eIdx].dateStr,
+        dayStartIndex: sIdx,
+        dayEndIndex: eIdx,
+        daysCount: eIdx - sIdx + 1,
       });
     }
+
     return weeks;
   }, [timelineDays]);
 
-  // Column width calculations
-  const dayColWidth = 36;
-  const weekColWidth = 110;
-  const leftColWidth = 280;
-
-  const totalTimelineWidth = useMemo(() => {
-    if (previewMode === 'days') {
-      return timelineDays.length * dayColWidth;
-    }
-    return timelineWeeks.length * weekColWidth;
-  }, [previewMode, timelineDays.length, timelineWeeks.length, dayColWidth, weekColWidth]);
-
-  // Filter tasks (NO assignee, priority, status needed)
-  const filteredTasks = useMemo(() => {
-    if (!activeChart || !activeChart.tasks) return [];
-    if (!taskSearchQuery.trim()) return activeChart.tasks;
-    const q = taskSearchQuery.toLowerCase();
-    return activeChart.tasks.filter(
-      (t) => t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)
-    );
-  }, [activeChart, taskSearchQuery]);
-
-  // Today string & index
+  // Today marker calculation
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const todayIndex = useMemo(() => {
     return timelineDays.findIndex((d) => d.dateStr === todayStr);
   }, [timelineDays, todayStr]);
 
-  // Scroll to today or start when chart opens
-  useEffect(() => {
-    if (scrollContainerRef.current && activeChart) {
-      if (previewMode === 'days' && todayIndex > 4) {
-        scrollContainerRef.current.scrollLeft = (todayIndex - 2) * dayColWidth;
-      } else {
-        scrollContainerRef.current.scrollLeft = 0;
-      }
-    }
-  }, [activeChart?.id, previewMode, todayIndex]);
+  // Filter tasks by search query
+  const filteredTasks = useMemo(() => {
+    if (!activeChart?.tasks) return [];
+    if (!taskSearchQuery.trim()) return activeChart.tasks;
+    const q = taskSearchQuery.toLowerCase();
+    return activeChart.tasks.filter((t) => t.title.toLowerCase().includes(q));
+  }, [activeChart, taskSearchQuery]);
 
-  // Color helper supporting 15+ presets and hex colors
-  const getColorStyles = (color?: string) => {
-    if (color?.startsWith('#')) {
-      return {
-        barStyle: { backgroundColor: color },
-        progressStyle: { backgroundColor: 'rgba(0, 0, 0, 0.25)' },
-        borderStyle: { borderColor: color },
-      };
+  // Dimensions
+  const dayColWidth = 32; // px per day column
+  const weekColWidth = 140; // px per week column
+  const leftColWidth = 280; // px for tasks column
+
+  const totalTimelineWidth = useMemo(() => {
+    if (previewMode === 'days') {
+      return Math.max(700, timelineDays.length * dayColWidth);
+    } else {
+      return Math.max(700, timelineWeeks.length * weekColWidth);
     }
-    const colorMap: Record<string, { bar: string; progress: string }> = {
-      blue: { bar: 'bg-blue-600', progress: 'bg-blue-800' },
-      sky: { bar: 'bg-sky-500', progress: 'bg-sky-700' },
-      cyan: { bar: 'bg-cyan-500', progress: 'bg-cyan-700' },
-      teal: { bar: 'bg-teal-500', progress: 'bg-teal-700' },
-      emerald: { bar: 'bg-emerald-600', progress: 'bg-emerald-800' },
-      lime: { bar: 'bg-lime-600', progress: 'bg-lime-800' },
-      amber: { bar: 'bg-amber-500', progress: 'bg-amber-700' },
-      orange: { bar: 'bg-orange-500', progress: 'bg-orange-700' },
-      red: { bar: 'bg-red-600', progress: 'bg-red-800' },
-      rose: { bar: 'bg-rose-500', progress: 'bg-rose-700' },
-      fuchsia: { bar: 'bg-fuchsia-600', progress: 'bg-fuchsia-800' },
-      purple: { bar: 'bg-purple-600', progress: 'bg-purple-800' },
-      violet: { bar: 'bg-violet-600', progress: 'bg-violet-800' },
-      slate: { bar: 'bg-slate-600', progress: 'bg-slate-800' },
-      indigo: { bar: 'bg-indigo-600', progress: 'bg-indigo-800' },
-    };
-    const c = colorMap[color || 'indigo'] || colorMap.indigo;
-    return {
-      barClass: c.bar,
-      progressClass: c.progress,
-    };
+  }, [previewMode, timelineDays.length, timelineWeeks.length]);
+
+  // Scroll synchronization: Keep task rows and calendar rows aligned vertically
+  const handleCalendarScroll = () => {
+    if (calendarScrollRef.current && taskListRef.current) {
+      taskListRef.current.scrollTop = calendarScrollRef.current.scrollTop;
+    }
   };
 
-  // PDF Export Handler
+  const handleTaskListWheel = (e: React.WheelEvent) => {
+    if (calendarScrollRef.current) {
+      calendarScrollRef.current.scrollTop += e.deltaY;
+    }
+  };
+
+  interface ColorStyleResult {
+    barClass?: string;
+    progressClass?: string;
+    textClass?: string;
+    barStyle?: React.CSSProperties;
+    progressStyle?: React.CSSProperties;
+  }
+
+  // Color mapping helper
+  const getColorStyles = (color?: string): ColorStyleResult => {
+    const defaultColor: ColorStyleResult = {
+      barClass: 'bg-indigo-600 border-indigo-700',
+      progressClass: 'bg-indigo-800',
+      textClass: 'text-indigo-950',
+    };
+
+    if (!color) return defaultColor;
+
+    if (color.startsWith('#')) {
+      return {
+        barClass: '',
+        progressClass: '',
+        barStyle: { backgroundColor: color, borderColor: color },
+        progressStyle: { backgroundColor: 'rgba(0, 0, 0, 0.25)' },
+        textClass: 'text-zinc-900',
+      };
+    }
+
+    const named: Record<string, ColorStyleResult> = {
+      indigo: { barClass: 'bg-indigo-600 border-indigo-700', progressClass: 'bg-indigo-800', textClass: 'text-indigo-950' },
+      blue: { barClass: 'bg-blue-600 border-blue-700', progressClass: 'bg-blue-800', textClass: 'text-blue-950' },
+      sky: { barClass: 'bg-sky-600 border-sky-700', progressClass: 'bg-sky-800', textClass: 'text-sky-950' },
+      cyan: { barClass: 'bg-cyan-600 border-cyan-700', progressClass: 'bg-cyan-800', textClass: 'text-cyan-950' },
+      teal: { barClass: 'bg-teal-600 border-teal-700', progressClass: 'bg-teal-800', textClass: 'text-teal-950' },
+      emerald: { barClass: 'bg-emerald-600 border-emerald-700', progressClass: 'bg-emerald-800', textClass: 'text-emerald-950' },
+      lime: { barClass: 'bg-lime-600 border-lime-700', progressClass: 'bg-lime-800', textClass: 'text-lime-950' },
+      amber: { barClass: 'bg-amber-600 border-amber-700', progressClass: 'bg-amber-800', textClass: 'text-amber-950' },
+      orange: { barClass: 'bg-orange-600 border-orange-700', progressClass: 'bg-orange-800', textClass: 'text-orange-950' },
+      red: { barClass: 'bg-rose-600 border-rose-700', progressClass: 'bg-rose-800', textClass: 'text-rose-950' },
+      rose: { barClass: 'bg-rose-600 border-rose-700', progressClass: 'bg-rose-800', textClass: 'text-rose-950' },
+      fuchsia: { barClass: 'bg-fuchsia-600 border-fuchsia-700', progressClass: 'bg-fuchsia-800', textClass: 'text-fuchsia-950' },
+      purple: { barClass: 'bg-purple-600 border-purple-700', progressClass: 'bg-purple-800', textClass: 'text-purple-950' },
+      violet: { barClass: 'bg-violet-600 border-violet-700', progressClass: 'bg-violet-800', textClass: 'text-violet-950' },
+      slate: { barClass: 'bg-slate-600 border-slate-700', progressClass: 'bg-slate-800', textClass: 'text-slate-950' },
+    };
+
+    return named[color.toLowerCase()] || defaultColor;
+  };
+
+  // PDF Export Handler with Instant Native Vector Execution & User Feedback
   const handleExportPdf = async () => {
     if (!activeChart) return;
     try {
       setIsExportingPdf(true);
+      setExportNotice(null);
+
       await exportGanttToA3Pdf({
         chart: activeChart,
         project: currentProject,
@@ -246,8 +273,19 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
         previewMode,
         companySettings,
       });
+
+      setExportNotice({
+        type: 'success',
+        message: 'A3 Landscape Gantt PDF exported & downloaded successfully!',
+      });
+      setTimeout(() => setExportNotice(null), 5000);
     } catch (err: any) {
       console.error('Failed to export Gantt PDF:', err);
+      setExportNotice({
+        type: 'error',
+        message: err?.message || 'Failed to export PDF. Please try again.',
+      });
+      setTimeout(() => setExportNotice(null), 6000);
     } finally {
       setIsExportingPdf(false);
     }
@@ -296,7 +334,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                 type="text"
                 value={cardsSearchQuery}
                 onChange={(e) => setCardsSearchQuery(e.target.value)}
-                placeholder="Search projects..."
+                placeholder="Search schedules & projects..."
                 className="pl-8 pr-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-xl text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-48 sm:w-64"
               />
             </div>
@@ -360,29 +398,49 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                   className="bg-white border border-zinc-200 hover:border-zinc-300 rounded-2xl p-5 shadow-xs hover:shadow-md transition cursor-pointer flex flex-col justify-between group relative"
                 >
                   <div>
-                    {/* Header */}
+                    {/* Prominently displayed Gantt Chart Title */}
                     <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                          {proj?.project_type || 'Schedule'}
-                        </span>
-                        <h2 className="text-sm font-bold text-zinc-900 group-hover:text-blue-600 transition truncate mt-1.5">
-                          {proj?.project_name || chart.project_name || chart.title}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200">
+                            Gantt Chart
+                          </span>
+                          {proj?.project_type && (
+                            <span className="text-[10px] font-semibold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md">
+                              {proj.project_type}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Chart Name prominently featured */}
+                        <h2
+                          className="text-base sm:text-lg font-black text-zinc-900 group-hover:text-blue-600 transition truncate leading-snug"
+                          title={chart.title || proj?.project_name}
+                        >
+                          {chart.title || proj?.project_name || 'Gantt Schedule'}
                         </h2>
+
+                        {/* Associated Project info */}
+                        {proj?.project_name && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium mt-1 truncate">
+                            <Building className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                            <span className="truncate">Project: {proj.project_name}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Delete Chart Button on card */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Delete Gantt chart for "${proj?.project_name || chart.title}"?`)) {
+                          if (confirm(`Delete Gantt chart "${chart.title || proj?.project_name}"?`)) {
                             onDeleteChart(chart.id);
                           }
                         }}
                         className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
                         title="Delete Gantt schedule"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
@@ -467,35 +525,82 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   }
 
   // -------------------------------------------------------------
-  // VIEW 2: GANTT CHART DETAILS (Simple Top Bar with Less Text & Moving Segment Bars)
+  // VIEW 2: GANTT CHART DETAILS (Prominent Name & Split Layout with Scrollbar on Calendar Portion ONLY)
   // -------------------------------------------------------------
-  const projectName = currentProject?.project_name || activeChart.project_name || activeChart.title;
+  const chartTitle = activeChart.title || currentProject?.project_name || 'Project Schedule';
+  const projectName = currentProject?.project_name || activeChart.project_name || '';
   const totalDays = timelineDays.length;
 
   return (
     <div className="space-y-4">
-      {/* SIMPLIFIED TOP BAR WITH LESS TEXT */}
-      <div className="bg-white border border-zinc-200 rounded-2xl px-4 py-3 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Back button & Project Title */}
-        <div className="flex items-center gap-3 min-w-0">
+      {/* EXPORT STATUS NOTICE */}
+      {exportNotice && (
+        <div
+          className={`px-4 py-2.5 rounded-xl border flex items-center justify-between text-xs font-medium ${
+            exportNotice.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {exportNotice.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{exportNotice.message}</span>
+          </div>
+          <button
+            onClick={() => setExportNotice(null)}
+            className="text-zinc-500 hover:text-zinc-800 font-bold ml-4 cursor-pointer"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
+      {/* TOP HEADER: Prominently displayed Gantt Chart Title */}
+      <div className="bg-white border border-zinc-200 rounded-2xl px-5 py-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        {/* Left: Back button & PROMINENT Gantt Chart Title */}
+        <div className="flex items-center gap-3.5 min-w-0">
           <button
             onClick={() => onSelectChart && onSelectChart(null)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition cursor-pointer shrink-0"
             title="Back to All Projects"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>All Projects</span>
           </button>
 
-          <div className="h-4 w-px bg-zinc-200" />
+          <div className="h-7 w-px bg-zinc-200 hidden sm:block" />
 
-          <div className="min-w-0 flex items-center gap-2">
-            <h1 className="text-sm font-bold text-zinc-900 truncate" title={projectName}>
-              {projectName}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200">
+                Gantt Chart Schedule
+              </span>
+              <span className="text-[11px] font-semibold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md">
+                {activeChart.start_date} &rarr; {activeChart.end_date} ({totalDays} days)
+              </span>
+            </div>
+            {/* Prominent Chart Title */}
+            <h1
+              className="text-base sm:text-xl font-black text-zinc-900 truncate tracking-tight mt-1"
+              title={chartTitle}
+            >
+              {chartTitle}
             </h1>
-            <span className="hidden sm:inline-flex text-[11px] font-semibold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md shrink-0">
-              {activeChart.start_date} &rarr; {activeChart.end_date} ({totalDays}d)
-            </span>
+            {projectName && (
+              <p className="text-xs text-zinc-500 truncate flex items-center gap-1.5 mt-0.5">
+                <Building className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                <span>
+                  Project: <strong className="text-zinc-700 font-semibold">{projectName}</strong>
+                </span>
+                {currentProject?.client && (
+                  <span>• Client: {currentProject.client.company || currentProject.client.name}</span>
+                )}
+              </p>
+            )}
           </div>
         </div>
 
@@ -505,9 +610,9 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
           <div className="flex items-center bg-zinc-100 border border-zinc-200 rounded-xl p-0.5 text-xs font-bold">
             <button
               onClick={() => setPreviewMode('days')}
-              className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
                 previewMode === 'days'
-                  ? 'bg-white text-zinc-900 shadow-2xs'
+                  ? 'bg-white text-zinc-900 shadow-2xs font-extrabold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
@@ -515,9 +620,9 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             </button>
             <button
               onClick={() => setPreviewMode('weeks')}
-              className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
                 previewMode === 'weeks'
-                  ? 'bg-white text-zinc-900 shadow-2xs'
+                  ? 'bg-white text-zinc-900 shadow-2xs font-extrabold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
@@ -525,25 +630,25 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             </button>
           </div>
 
-          {/* Export PDF (Single Page A3 Landscape) */}
+          {/* Export PDF Button (Single Page A3 Landscape) */}
           <button
             onClick={handleExportPdf}
             disabled={isExportingPdf}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
             title="Export Single Page A3 Landscape PDF"
           >
             {isExportingPdf ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500" />
             ) : (
-              <Download className="w-3.5 h-3.5 text-zinc-600" />
+              <Download className="w-3.5 h-3.5 text-zinc-700" />
             )}
-            <span>Export PDF</span>
+            <span>{isExportingPdf ? 'Exporting...' : 'Export PDF'}</span>
           </button>
 
           {/* Add Task */}
           <button
             onClick={() => onOpenTaskModal(activeChart)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Add Task</span>
@@ -552,12 +657,12 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
           {/* Delete current chart */}
           <button
             onClick={() => {
-              if (confirm(`Delete Gantt schedule for "${projectName}"?`)) {
+              if (confirm(`Delete Gantt schedule "${chartTitle}"?`)) {
                 onDeleteChart(activeChart.id);
                 if (onSelectChart) onSelectChart(null);
               }
             }}
-            className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
             title="Delete this Gantt chart"
           >
             <Trash2 className="w-4 h-4" />
@@ -565,7 +670,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
         </div>
       </div>
 
-      {/* FILTER STRIP (Search tasks only, no assignee/status clutter) */}
+      {/* FILTER STRIP (Search tasks) */}
       <div className="flex items-center justify-between gap-3 px-1">
         <span className="text-xs text-zinc-500 font-medium">
           Showing {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
@@ -577,248 +682,269 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             value={taskSearchQuery}
             onChange={(e) => setTaskSearchQuery(e.target.value)}
             placeholder="Search tasks..."
-            className="pl-8 pr-3 py-1 text-xs bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-48 sm:w-60"
+            className="pl-8 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-xl text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 w-48 sm:w-60"
           />
         </div>
       </div>
 
-      {/* MAIN UNIFIED GANTT GRID CONTAINER: Segment bars move with calendar! */}
-      <div
-        ref={scrollContainerRef}
-        className="bg-white border border-zinc-200 rounded-2xl shadow-xs overflow-x-auto overflow-y-auto max-h-[620px] select-none relative"
-      >
-        <div
-          style={{ minWidth: `${leftColWidth + totalTimelineWidth}px` }}
-          className="relative divide-y divide-zinc-200"
-        >
-          {/* --- STICKY TIMELINE HEADER --- */}
-          <div className="sticky top-0 z-30 flex bg-zinc-50 border-b border-zinc-200 shadow-2xs">
-            {/* Top-Left Corner Cell: Sticky to BOTH top and left */}
-            <div
-              style={{ width: `${leftColWidth}px` }}
-              className="sticky left-0 z-40 bg-zinc-100 border-r border-zinc-200 px-3 py-2.5 flex items-center justify-between shrink-0"
-            >
-              <span className="text-xs font-bold text-zinc-900">Tasks</span>
+      {/* MAIN GANTT CONTAINER: Split layout with horizontal scrollbar in CALENDAR PORTION ONLY! */}
+      <div className="bg-white border border-zinc-200 rounded-2xl shadow-xs overflow-hidden flex flex-col select-none">
+        <div className="flex divide-x divide-zinc-200 relative max-h-[620px]">
+          
+          {/* ============================================================== */}
+          {/* LEFT PORTION: Tasks Column (Fixed horizontally, NO horizontal scrollbar) */}
+          {/* ============================================================== */}
+          <div
+            style={{ width: `${leftColWidth}px` }}
+            className="shrink-0 flex flex-col bg-white z-20"
+            onWheel={handleTaskListWheel}
+          >
+            {/* Left Header - Exactly matches right header height (53px) */}
+            <div className="h-[53px] bg-zinc-50 border-b border-zinc-200 px-3.5 flex items-center justify-between shrink-0">
+              <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Tasks</span>
               <span className="text-[11px] font-semibold text-zinc-500">
                 {filteredTasks.length} total
               </span>
             </div>
 
-            {/* Right Header: Days or Weeks */}
-            {previewMode === 'days' ? (
-              <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex flex-col">
-                {/* Month Row */}
-                <div className="flex border-b border-zinc-200 h-6 text-[11px] font-bold text-zinc-700 divide-x divide-zinc-200 bg-zinc-100/70">
-                  {monthHeaders.map((m, idx) => (
-                    <div
-                      key={`${m.monthYear}-${idx}`}
-                      style={{ width: `${m.daysCount * dayColWidth}px` }}
-                      className="px-2 flex items-center text-[10px] uppercase font-bold text-zinc-700 tracking-wider truncate"
-                    >
-                      {m.monthYear}
-                    </div>
-                  ))}
+            {/* Left Task Rows List - Synchronously scrolls vertically with calendar */}
+            <div
+              ref={taskListRef}
+              className="flex-1 overflow-y-hidden divide-y divide-zinc-100"
+            >
+              {filteredTasks.length === 0 ? (
+                <div className="p-8 text-center text-xs text-zinc-400">
+                  No tasks scheduled. Click <strong>+ Add Task</strong> to begin.
                 </div>
-
-                {/* Day Row */}
-                <div className="flex h-7 text-[10px] font-semibold text-zinc-600 divide-x divide-zinc-200">
-                  {timelineDays.map((day) => {
-                    const isToday = day.dateStr === todayStr;
-                    return (
-                      <div
-                        key={day.dateStr}
-                        style={{ width: `${dayColWidth}px` }}
-                        className={`flex flex-col items-center justify-center shrink-0 ${
-                          day.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
-                        } ${isToday ? 'bg-zinc-900 text-white font-bold' : ''}`}
-                        title={`${day.dateStr} (${day.isWeekend ? 'Weekend' : 'Workday'})`}
-                      >
-                        <span className="leading-none text-[8px] opacity-75">{day.dayInitial}</span>
-                        <span className="leading-none font-bold mt-0.5">{day.dayNumber}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              /* Weeks Preview Header */
-              <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex h-13 divide-x divide-zinc-200">
-                {timelineWeeks.map((week) => (
-                  <div
-                    key={week.weekNumber}
-                    style={{ width: `${weekColWidth}px` }}
-                    className="flex flex-col items-center justify-center p-1 text-center shrink-0 bg-zinc-50"
-                  >
-                    <span className="text-xs font-bold text-zinc-900">Week {week.weekNumber}</span>
-                    <span className="text-[10px] text-zinc-500 mt-0.5">
-                      {week.startDateStr.slice(5)} - {week.endDateStr.slice(5)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* --- TASK ROWS & TIMELINE SEGMENTS --- */}
-          <div className="divide-y divide-zinc-100">
-            {filteredTasks.length === 0 ? (
-              <div className="p-8 text-center text-xs text-zinc-500">
-                No tasks match your search query. Click <strong>+ Add Task</strong> above to add one.
-              </div>
-            ) : (
-              filteredTasks.map((task) => {
-                const colorStyles = getColorStyles(task.color);
-                const segments = task.segments || [];
-
-                return (
+              ) : (
+                filteredTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="flex h-15 relative group hover:bg-zinc-50/50 transition items-center"
+                    className="h-15 px-3 flex items-center justify-between gap-2 hover:bg-zinc-50 transition group"
                   >
-                    {/* Sticky Left Task Title Column: Clean, NO assignee, NO priority, NO status */}
-                    <div
-                      style={{ width: `${leftColWidth}px` }}
-                      className="sticky left-0 z-20 bg-white group-hover:bg-zinc-50 transition border-r border-zinc-200 px-3 h-full flex items-center justify-between gap-2 shrink-0"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-zinc-900 truncate" title={task.title}>
-                          {task.title}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-zinc-900 truncate" title={task.title}>
+                        {task.title}
+                      </div>
+                      {task.description && (
+                        <div className="text-[10px] text-zinc-400 truncate mt-0.5">
+                          {task.description}
                         </div>
-                        {task.description && (
-                          <div className="text-[10px] text-zinc-400 truncate mt-0.5">
-                            {task.description}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Edit & Delete Action Buttons */}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
-                        <button
-                          onClick={() => onOpenTaskModal(activeChart, task)}
-                          className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
-                          title="Edit Task"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete task "${task.title}"?`)) {
-                              onDeleteTask(activeChart.id, task.id);
-                            }
-                          }}
-                          className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-100 rounded cursor-pointer transition"
-                          title="Delete Task"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      )}
                     </div>
 
-                    {/* Timeline Grid: Day/Week Columns and Segment Bars IN THE SAME SCROLL FLOW */}
-                    <div
-                      style={{ width: `${totalTimelineWidth}px` }}
-                      className="shrink-0 relative h-full flex items-center"
-                    >
-                      {/* Background Column Lines & Weekend Tints */}
-                      <div className="absolute inset-0 flex divide-x divide-zinc-100 pointer-events-none">
-                        {previewMode === 'days'
-                          ? timelineDays.map((day) => (
-                              <div
-                                key={day.dateStr}
-                                style={{ width: `${dayColWidth}px` }}
-                                className={`h-full shrink-0 ${
-                                  day.isWeekend ? 'bg-amber-50/35' : ''
-                                } ${day.dateStr === todayStr ? 'bg-zinc-100/40' : ''}`}
-                              />
-                            ))
-                          : timelineWeeks.map((w) => (
-                              <div
-                                key={w.weekNumber}
-                                style={{ width: `${weekColWidth}px` }}
-                                className="h-full shrink-0 border-r border-zinc-100"
-                              />
-                            ))}
-                      </div>
+                    {/* Edit & Delete Action Buttons */}
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                      <button
+                        onClick={() => onOpenTaskModal(activeChart, task)}
+                        className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
+                        title="Edit Task"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete task "${task.title}"?`)) {
+                            onDeleteTask(activeChart.id, task.id);
+                          }
+                        }}
+                        className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-100 rounded cursor-pointer transition"
+                        title="Delete Task"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
-                      {/* Today Marker Line (In Days view) */}
-                      {previewMode === 'days' && todayIndex !== -1 && (
+          {/* ============================================================== */}
+          {/* RIGHT PORTION: Calendar & Timeline (HORIZONTAL SCROLLBAR IS HERE ONLY!) */}
+          {/* ============================================================== */}
+          <div
+            ref={calendarScrollRef}
+            onScroll={handleCalendarScroll}
+            className="flex-1 overflow-x-auto overflow-y-auto relative min-w-0"
+          >
+            <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex flex-col">
+              
+              {/* --- STICKY TIMELINE HEADER (53px height matching left header) --- */}
+              <div className="sticky top-0 z-30 flex flex-col bg-zinc-50 border-b border-zinc-200 shadow-2xs">
+                {previewMode === 'days' ? (
+                  <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex flex-col">
+                    {/* Month Row (h-6 = 24px) */}
+                    <div className="flex border-b border-zinc-200 h-6 text-[11px] font-bold text-zinc-700 divide-x divide-zinc-200 bg-zinc-100/70">
+                      {monthHeaders.map((m, idx) => (
                         <div
-                          style={{ left: `${todayIndex * dayColWidth + dayColWidth / 2}px` }}
-                          className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 pointer-events-none opacity-80"
-                        />
-                      )}
+                          key={`${m.monthYear}-${idx}`}
+                          style={{ width: `${m.daysCount * dayColWidth}px` }}
+                          className="px-2 flex items-center text-[10px] uppercase font-bold text-zinc-700 tracking-wider truncate"
+                        >
+                          {m.monthYear}
+                        </div>
+                      ))}
+                    </div>
 
-                      {/* TASK SEGMENT BARS */}
-                      {segments.map((seg, sIdx) => {
-                        const chartStart = new Date(activeChart.start_date);
-                        const segStart = new Date(seg.start_date);
-                        const segEnd = new Date(seg.end_date);
-
-                        if (isNaN(segStart.getTime()) || isNaN(segEnd.getTime())) return null;
-
-                        const startOffsetDays = Math.max(
-                          0,
-                          Math.round((segStart.getTime() - chartStart.getTime()) / (1000 * 60 * 60 * 24))
-                        );
-                        const durationDays = Math.max(
-                          1,
-                          Math.round((segEnd.getTime() - segStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
-                        );
-
-                        let leftPx = 0;
-                        let widthPx = 0;
-
-                        if (previewMode === 'days') {
-                          leftPx = startOffsetDays * dayColWidth;
-                          widthPx = Math.max(dayColWidth, durationDays * dayColWidth);
-                        } else {
-                          leftPx = (startOffsetDays / 7) * weekColWidth;
-                          widthPx = Math.max(20, (durationDays / 7) * weekColWidth);
-                        }
-
+                    {/* Day Row (h-7 = 28px) */}
+                    <div className="flex h-7 text-[10px] font-semibold text-zinc-600 divide-x divide-zinc-200">
+                      {timelineDays.map((day) => {
+                        const isToday = day.dateStr === todayStr;
                         return (
                           <div
-                            key={sIdx}
-                            onClick={() => onOpenTaskModal(activeChart, task)}
-                            style={{
-                              left: `${leftPx}px`,
-                              width: `${widthPx}px`,
-                              ...(colorStyles.barStyle || {}),
-                            }}
-                            className={`absolute h-8 rounded-lg ${
-                              colorStyles.barClass || 'bg-indigo-600'
-                            } text-white shadow-xs flex items-center justify-between px-2 text-[11px] font-bold cursor-pointer hover:scale-[1.01] hover:shadow-md transition z-10 overflow-hidden group/bar`}
-                            title={`${task.title} (${seg.start_date} to ${seg.end_date}): ${seg.progress}%`}
+                            key={day.dateStr}
+                            style={{ width: `${dayColWidth}px` }}
+                            className={`flex flex-col items-center justify-center shrink-0 ${
+                              day.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
+                            } ${isToday ? 'bg-zinc-900 text-white font-bold' : ''}`}
+                            title={`${day.dateStr} (${day.isWeekend ? 'Weekend' : 'Workday'})`}
                           >
-                            {/* Inner Progress Fill */}
-                            <div
-                              style={{
-                                width: `${seg.progress}%`,
-                                ...(colorStyles.progressStyle || {}),
-                              }}
-                              className={`absolute inset-y-0 left-0 ${
-                                colorStyles.progressClass || 'bg-black/20'
-                              } transition-all pointer-events-none`}
-                            />
-
-                            {/* Label */}
-                            <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
-                              {widthPx > 70 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : `${seg.progress}%`}
-                            </span>
-
-                            {/* Progress % */}
-                            <span className="relative z-10 text-[10px] font-bold shrink-0">
-                              {seg.progress}%
-                            </span>
+                            <span className="leading-none text-[8px] opacity-75">{day.dayInitial}</span>
+                            <span className="leading-none font-bold mt-0.5">{day.dayNumber}</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
-                );
-              })
-            )}
+                ) : (
+                  /* Weeks Preview Header (53px height) */
+                  <div style={{ width: `${totalTimelineWidth}px` }} className="shrink-0 flex h-[53px] divide-x divide-zinc-200">
+                    {timelineWeeks.map((week) => (
+                      <div
+                        key={week.weekNumber}
+                        style={{ width: `${weekColWidth}px` }}
+                        className="flex flex-col items-center justify-center p-1 text-center shrink-0 bg-zinc-50"
+                      >
+                        <span className="text-xs font-bold text-zinc-900">Week {week.weekNumber}</span>
+                        <span className="text-[10px] text-zinc-500 mt-0.5">
+                          {week.startDateStr.slice(5)} - {week.endDateStr.slice(5)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* --- TIMELINE ROWS & SEGMENT BARS (Each h-15 matching left tasks) --- */}
+              <div className="divide-y divide-zinc-100">
+                {filteredTasks.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-400">
+                    Select &quot;+ Add Task&quot; above to schedule segments.
+                  </div>
+                ) : (
+                  filteredTasks.map((task) => {
+                    const colorStyles = getColorStyles(task.color);
+                    const segments = task.segments || [];
+
+                    return (
+                      <div
+                        key={task.id}
+                        className="h-15 relative group hover:bg-zinc-50/50 transition flex items-center"
+                      >
+                        {/* Background Column Lines & Weekend Tints */}
+                        <div className="absolute inset-0 flex divide-x divide-zinc-100 pointer-events-none">
+                          {previewMode === 'days'
+                            ? timelineDays.map((day) => (
+                                <div
+                                  key={day.dateStr}
+                                  style={{ width: `${dayColWidth}px` }}
+                                  className={`h-full shrink-0 ${
+                                    day.isWeekend ? 'bg-amber-50/35' : ''
+                                  } ${day.dateStr === todayStr ? 'bg-zinc-100/40' : ''}`}
+                                />
+                              ))
+                            : timelineWeeks.map((w) => (
+                                <div
+                                  key={w.weekNumber}
+                                  style={{ width: `${weekColWidth}px` }}
+                                  className="h-full shrink-0 border-r border-zinc-100"
+                                />
+                              ))}
+                        </div>
+
+                        {/* Today Marker Line (In Days view) */}
+                        {previewMode === 'days' && todayIndex !== -1 && (
+                          <div
+                            style={{ left: `${todayIndex * dayColWidth + dayColWidth / 2}px` }}
+                            className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 pointer-events-none opacity-80"
+                          />
+                        )}
+
+                        {/* TASK SEGMENT BARS */}
+                        {segments.map((seg, sIdx) => {
+                          const chartStart = new Date(activeChart.start_date);
+                          const segStart = new Date(seg.start_date);
+                          const segEnd = new Date(seg.end_date);
+
+                          if (isNaN(segStart.getTime()) || isNaN(segEnd.getTime())) return null;
+
+                          const startOffsetDays = Math.max(
+                            0,
+                            Math.round((segStart.getTime() - chartStart.getTime()) / (1000 * 60 * 60 * 24))
+                          );
+                          const durationDays = Math.max(
+                            1,
+                            Math.round((segEnd.getTime() - segStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+                          );
+
+                          let leftPx = 0;
+                          let widthPx = 0;
+
+                          if (previewMode === 'days') {
+                            leftPx = startOffsetDays * dayColWidth;
+                            widthPx = Math.max(dayColWidth, durationDays * dayColWidth);
+                          } else {
+                            leftPx = (startOffsetDays / 7) * weekColWidth;
+                            widthPx = Math.max(20, (durationDays / 7) * weekColWidth);
+                          }
+
+                          return (
+                            <div
+                              key={sIdx}
+                              onClick={() => onOpenTaskModal(activeChart, task)}
+                              style={{
+                                left: `${leftPx}px`,
+                                width: `${widthPx}px`,
+                                ...(colorStyles.barStyle || {}),
+                              }}
+                              className={`absolute h-8 rounded-lg ${
+                                colorStyles.barClass || 'bg-indigo-600'
+                              } text-white shadow-xs flex items-center justify-between px-2 text-[11px] font-bold cursor-pointer hover:scale-[1.01] hover:shadow-md transition z-10 overflow-hidden group/bar`}
+                              title={`${task.title} (${seg.start_date} to ${seg.end_date}): ${seg.progress}%`}
+                            >
+                              {/* Inner Progress Fill */}
+                              <div
+                                style={{
+                                  width: `${seg.progress}%`,
+                                  ...(colorStyles.progressStyle || {}),
+                                }}
+                                className={`absolute inset-y-0 left-0 ${
+                                  colorStyles.progressClass || 'bg-black/20'
+                                } transition-all pointer-events-none`}
+                              />
+
+                              {/* Label */}
+                              <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
+                                {widthPx > 70 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : `${seg.progress}%`}
+                              </span>
+
+                              {/* Progress % */}
+                              <span className="relative z-10 text-[10px] font-bold shrink-0">
+                                {seg.progress}%
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+            </div>
           </div>
+
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, CalendarRange, Calendar, AlertCircle } from 'lucide-react';
-import type { Project, GanttChart } from '../../types';
+import { X, CalendarRange, Calendar, AlertCircle, Clock } from 'lucide-react';
+import type { Project } from '../../types';
 
 interface GanttChartModalProps {
   isOpen: boolean;
@@ -16,6 +16,60 @@ interface GanttChartModalProps {
   }) => Promise<void> | void;
 }
 
+type DurationUnit = 'days' | 'weeks' | 'months';
+
+// Helper to format Date as YYYY-MM-DD
+function formatDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Calculate end date given start date, duration value, and unit
+function calculateEndDate(startDateStr: string, durationVal: number, unit: DurationUnit): string {
+  if (!startDateStr || isNaN(durationVal) || durationVal <= 0) return '';
+  const [y, m, d] = startDateStr.split('-').map(Number);
+  const start = new Date(y, m - 1, d);
+  if (isNaN(start.getTime())) return '';
+
+  const end = new Date(start);
+  if (unit === 'days') {
+    end.setDate(end.getDate() + Math.round(durationVal) - 1);
+  } else if (unit === 'weeks') {
+    end.setDate(end.getDate() + Math.round(durationVal * 7) - 1);
+  } else if (unit === 'months') {
+    // Add months
+    const wholeMonths = Math.floor(durationVal);
+    const fractionMonth = durationVal - wholeMonths;
+    end.setMonth(end.getMonth() + wholeMonths);
+    if (fractionMonth > 0) {
+      end.setDate(end.getDate() + Math.round(fractionMonth * 30));
+    }
+    end.setDate(end.getDate() - 1);
+  }
+  return formatDate(end);
+}
+
+// Calculate duration given start date and end date
+function calculateDurationFromDates(startDateStr: string, endDateStr: string, unit: DurationUnit): number {
+  if (!startDateStr || !endDateStr) return 0;
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
+
+  const totalDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  if (unit === 'days') {
+    return totalDays;
+  } else if (unit === 'weeks') {
+    return Math.round((totalDays / 7) * 10) / 10;
+  } else {
+    return Math.round((totalDays / 30.4) * 10) / 10;
+  }
+}
+
 export const GanttChartModal: React.FC<GanttChartModalProps> = ({
   isOpen,
   onClose,
@@ -29,11 +83,13 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [durationValue, setDurationValue] = useState<number>(60);
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>('days');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-fill dates and title from selected project
+  // Auto-fill dates and title from selected project on open
   useEffect(() => {
     if (!isOpen) return;
 
@@ -43,46 +99,108 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
     const proj = projects.find((p) => p.id === targetProjId);
     if (proj) {
       setTitle(`${proj.project_name} - Master Gantt Chart`);
-      setStartDate(proj.start_date || new Date().toISOString().slice(0, 10));
+      const sDate = proj.start_date || formatDate(new Date());
+      setStartDate(sDate);
+
       if (proj.expected_completion_date) {
         setEndDate(proj.expected_completion_date);
+        const days = calculateDurationFromDates(sDate, proj.expected_completion_date, 'days');
+        setDurationValue(days || 60);
+        setDurationUnit('days');
       } else {
-        const d = new Date();
-        d.setDate(d.getDate() + 60);
-        setEndDate(d.toISOString().slice(0, 10));
+        const calculatedEnd = calculateEndDate(sDate, 60, 'days');
+        setEndDate(calculatedEnd);
+        setDurationValue(60);
+        setDurationUnit('days');
       }
       setNotes(proj.description || '');
     } else {
-      const today = new Date().toISOString().slice(0, 10);
-      const future = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+      const today = formatDate(new Date());
+      const calculatedEnd = calculateEndDate(today, 60, 'days');
       setTitle('Project Master Gantt Chart');
       setStartDate(today);
-      setEndDate(future);
+      setEndDate(calculatedEnd);
+      setDurationValue(60);
+      setDurationUnit('days');
     }
     setError('');
   }, [isOpen, initialProjectId]);
 
+  // Handle Project Selection
   const handleProjectSelect = (id: string) => {
     setProjectId(id);
     const proj = projects.find((p) => p.id === id);
     if (proj) {
       setTitle(`${proj.project_name} - Master Gantt Chart`);
-      if (proj.start_date) setStartDate(proj.start_date);
-      if (proj.expected_completion_date) setEndDate(proj.expected_completion_date);
+      const sDate = proj.start_date || formatDate(new Date());
+      setStartDate(sDate);
+
+      if (proj.expected_completion_date) {
+        setEndDate(proj.expected_completion_date);
+        const d = calculateDurationFromDates(sDate, proj.expected_completion_date, durationUnit);
+        setDurationValue(d || 30);
+      } else {
+        const e = calculateEndDate(sDate, durationValue, durationUnit);
+        setEndDate(e);
+      }
       if (proj.description) setNotes(proj.description);
+    }
+  };
+
+  // 1. When Start Date changes: auto-calculate End Date based on current duration
+  const handleStartDateChange = (newStart: string) => {
+    setStartDate(newStart);
+    if (newStart && durationValue > 0) {
+      const computedEnd = calculateEndDate(newStart, durationValue, durationUnit);
+      if (computedEnd) {
+        setEndDate(computedEnd);
+      }
+    } else if (newStart && endDate && newStart <= endDate) {
+      const computedDur = calculateDurationFromDates(newStart, endDate, durationUnit);
+      setDurationValue(computedDur);
+    }
+  };
+
+  // 2. When Duration Value or Unit changes: auto-calculate End Date
+  const handleDurationValueChange = (newVal: number) => {
+    setDurationValue(newVal);
+    if (startDate && newVal > 0) {
+      const computedEnd = calculateEndDate(startDate, newVal, durationUnit);
+      if (computedEnd) {
+        setEndDate(computedEnd);
+      }
+    }
+  };
+
+  const handleDurationUnitChange = (newUnit: DurationUnit) => {
+    setDurationUnit(newUnit);
+    if (startDate && endDate) {
+      // Recalculate duration number for the new unit
+      const newDur = calculateDurationFromDates(startDate, endDate, newUnit);
+      setDurationValue(newDur);
+    } else if (startDate && durationValue > 0) {
+      const computedEnd = calculateEndDate(startDate, durationValue, newUnit);
+      if (computedEnd) {
+        setEndDate(computedEnd);
+      }
+    }
+  };
+
+  // 3. When End Date changes manually: auto-calculate duration
+  const handleEndDateChange = (newEnd: string) => {
+    setEndDate(newEnd);
+    if (startDate && newEnd) {
+      if (newEnd >= startDate) {
+        const computedDur = calculateDurationFromDates(startDate, newEnd, durationUnit);
+        setDurationValue(computedDur);
+      }
     }
   };
 
   if (!isOpen) return null;
 
-  // Calculate duration in days
-  let durationDays = 0;
-  if (startDate && endDate) {
-    const s = new Date(startDate);
-    const e = new Date(endDate);
-    const diff = e.getTime() - s.getTime();
-    durationDays = Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)) + 1);
-  }
+  // Computed total days for display badge
+  const totalDays = startDate && endDate ? calculateDurationFromDates(startDate, endDate, 'days') : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,52 +302,93 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Master Construction Timeline"
-              className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
+              placeholder="e.g., Falcon Tower - Master Schedule"
+              className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900 font-medium"
               required
             />
           </div>
 
-          {/* Project Duration */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                Start Date <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
-                required
-              />
+          {/* Start Date, Duration (days/weeks/months), and End Date */}
+          <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                Schedule Dates & Duration
+              </span>
+              <span className="text-[11px] text-zinc-500">Auto-calculated</span>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                End Date <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2.5 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
-                required
-              />
-            </div>
-          </div>
 
-          {/* Computed Duration Badge */}
-          {durationDays > 0 && (
-            <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl flex items-center justify-between text-xs">
-              <span className="text-zinc-600 font-medium flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                Project Duration Span:
-              </span>
-              <span className="font-bold text-zinc-900">
-                {durationDays} days (~{(durationDays / 7).toFixed(1)} weeks)
-              </span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Start Date */}
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                  Start Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-2.5 py-2 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
+                  required
+                />
+              </div>
+
+              {/* Duration with Unit (Days / Weeks / Months) */}
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                  Duration <span className="text-rose-500">*</span>
+                </label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={durationValue || ''}
+                    onChange={(e) => handleDurationValueChange(parseFloat(e.target.value) || 0)}
+                    className="w-1/2 text-xs bg-white border border-zinc-200 rounded-xl px-2.5 py-2 text-zinc-900 font-semibold focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
+                    placeholder="Duration"
+                    required
+                  />
+                  <select
+                    value={durationUnit}
+                    onChange={(e) => handleDurationUnitChange(e.target.value as DurationUnit)}
+                    className="w-1/2 text-xs bg-white border border-zinc-200 rounded-xl px-1.5 py-2 text-zinc-800 font-medium focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
+                  >
+                    <option value="days">Days</option>
+                    <option value="weeks">Weeks</option>
+                    <option value="months">Months</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* End Date */}
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                  End Date <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-2.5 py-2 text-zinc-900 focus:outline-hidden focus:ring-2 focus:ring-zinc-900"
+                  required
+                />
+              </div>
             </div>
-          )}
+
+            {/* Computed Duration summary pill */}
+            {totalDays > 0 && (
+              <div className="pt-2 border-t border-zinc-200/60 flex items-center justify-between text-[11px] text-zinc-600">
+                <span className="flex items-center gap-1 font-medium">
+                  <Calendar className="w-3 h-3 text-zinc-400" />
+                  Total Timeline Span:
+                </span>
+                <span className="font-bold text-zinc-900">
+                  {totalDays} days (~{(totalDays / 7).toFixed(1)} weeks • {(totalDays / 30.4).toFixed(1)} months)
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Basic Information / Notes */}
           <div>
