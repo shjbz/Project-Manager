@@ -92,6 +92,7 @@ export default function App() {
   const [selectedGanttChartId, setSelectedGanttChartId] = useState<string | undefined>(undefined);
   const [ganttChartModalOpen, setGanttChartModalOpen] = useState(false);
   const [ganttChartTargetProjectId, setGanttChartTargetProjectId] = useState<string | undefined>(undefined);
+  const [editingGanttChart, setEditingGanttChart] = useState<GanttChart | null>(null);
   const [ganttTaskModalOpen, setGanttTaskModalOpen] = useState(false);
   const [ganttTaskModalChart, setGanttTaskModalChart] = useState<GanttChart | null>(null);
   const [editingGanttTask, setEditingGanttTask] = useState<GanttTask | null>(null);
@@ -474,10 +475,25 @@ export default function App() {
 
   // Gantt Chart Actions
   const handleSaveGanttChart = async (chartData: any) => {
-    const created = await api.createGanttChart(chartData);
-    await loadAllData();
-    setSelectedGanttChartId(created.id);
-    setCurrentNav('gantt');
+    if (chartData.id) {
+      // Update existing Gantt chart
+      await api.updateGanttChart(chartData.id, {
+        project_id: chartData.project_id,
+        title: chartData.title,
+        start_date: chartData.start_date,
+        end_date: chartData.end_date,
+        notes: chartData.notes,
+      });
+      await loadAllData();
+      setSelectedGanttChartId(chartData.id);
+      setEditingGanttChart(null);
+    } else {
+      // Create new Gantt chart
+      const created = await api.createGanttChart(chartData);
+      await loadAllData();
+      setSelectedGanttChartId(created.id);
+      setCurrentNav('gantt');
+    }
   };
 
   const handleDeleteGanttChart = async (chartId: string) => {
@@ -627,6 +643,7 @@ export default function App() {
                   setSelectedProjectId(null);
                 }}
                 onCreateGanttChart={() => {
+                  setEditingGanttChart(null);
                   setGanttChartTargetProjectId(selectedProject.id);
                   setGanttChartModalOpen(true);
                 }}
@@ -676,7 +693,13 @@ export default function App() {
                 selectedChartId={selectedGanttChartId}
                 onSelectChart={(id) => setSelectedGanttChartId(id)}
                 onOpenNewChart={(projId) => {
+                  setEditingGanttChart(null);
                   setGanttChartTargetProjectId(projId);
+                  setGanttChartModalOpen(true);
+                }}
+                onEditChart={(chart) => {
+                  setEditingGanttChart(chart);
+                  setGanttChartTargetProjectId(chart.project_id);
                   setGanttChartModalOpen(true);
                 }}
                 onOpenTaskModal={(chart, task) => {
@@ -852,15 +875,17 @@ export default function App() {
           initialData={editingTeamMember}
         />
 
-        {/* Gantt Chart Creation Modal */}
+        {/* Gantt Chart Creation / Editing Modal */}
         <GanttChartModal
           isOpen={ganttChartModalOpen}
           onClose={() => {
             setGanttChartModalOpen(false);
             setGanttChartTargetProjectId(undefined);
+            setEditingGanttChart(null);
           }}
           projects={projects}
           initialProjectId={ganttChartTargetProjectId}
+          chart={editingGanttChart}
           onSave={handleSaveGanttChart}
         />
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Calendar, AlertCircle, Clock, CheckCircle2, Palette } from 'lucide-react';
+import { X, Plus, Trash2, AlertCircle, Clock, CheckCircle2, Palette } from 'lucide-react';
 import type { GanttTask, GanttSegment, GanttChart, TeamMember, Priority, TaskStatus } from '../../types';
 
 interface GanttTaskModalProps {
@@ -9,6 +9,13 @@ interface GanttTaskModalProps {
   chart: GanttChart;
   team: TeamMember[];
   onSave: (taskData: GanttTask) => Promise<void> | void;
+}
+
+type DurationUnit = 'days' | 'weeks' | 'months';
+
+interface SegmentWithDuration extends GanttSegment {
+  durationVal: number;
+  durationUnit: DurationUnit;
 }
 
 const COLOR_OPTIONS = [
@@ -29,6 +36,65 @@ const COLOR_OPTIONS = [
   { id: 'slate', label: 'Slate', bg: 'bg-slate-600', hex: '#475569', ring: 'ring-slate-600' },
 ];
 
+// Helper to format Date as YYYY-MM-DD
+function formatDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Calculate end date given start date, duration value, and unit
+function calculateEndDate(startDateStr: string, durationVal: number, unit: DurationUnit): string {
+  if (!startDateStr || isNaN(durationVal) || durationVal <= 0) return '';
+  const [y, m, d] = startDateStr.split('-').map(Number);
+  const start = new Date(y, m - 1, d);
+  if (isNaN(start.getTime())) return '';
+
+  const end = new Date(start);
+  if (unit === 'days') {
+    end.setDate(end.getDate() + Math.round(durationVal) - 1);
+  } else if (unit === 'weeks') {
+    end.setDate(end.getDate() + Math.round(durationVal * 7) - 1);
+  } else if (unit === 'months') {
+    const wholeMonths = Math.floor(durationVal);
+    const fractionMonth = durationVal - wholeMonths;
+    end.setMonth(end.getMonth() + wholeMonths);
+    if (fractionMonth > 0) {
+      end.setDate(end.getDate() + Math.round(fractionMonth * 30));
+    }
+    end.setDate(end.getDate() - 1);
+  }
+  return formatDate(end);
+}
+
+// Calculate duration given start date and end date
+function calculateDurationFromDates(startDateStr: string, endDateStr: string, unit: DurationUnit): number {
+  if (!startDateStr || !endDateStr) return 0;
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const [ey, em, ed] = endDateStr.split('-').map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return 0;
+
+  const totalDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  if (unit === 'days') {
+    return totalDays;
+  } else if (unit === 'weeks') {
+    return Math.round((totalDays / 7) * 10) / 10;
+  } else {
+    return Math.round((totalDays / 30.4) * 10) / 10;
+  }
+}
+
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d);
+  if (isNaN(dateObj.getTime())) return dateStr;
+  dateObj.setDate(dateObj.getDate() + days);
+  return formatDate(dateObj);
+}
+
 export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
   isOpen,
   onClose,
@@ -43,7 +109,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
   const [priority, setPriority] = useState<Priority>('medium');
   const [status, setStatus] = useState<TaskStatus>('pending');
   const [color, setColor] = useState('indigo');
-  const [segments, setSegments] = useState<GanttSegment[]>([]);
+  const [segments, setSegments] = useState<SegmentWithDuration[]>([]);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -57,19 +123,34 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       setPriority(task.priority || 'medium');
       setStatus(task.status || 'pending');
       setColor(task.color || 'indigo');
-      setSegments(
-        task.segments && task.segments.length > 0
-          ? JSON.parse(JSON.stringify(task.segments))
-          : [
-              {
-                id: `seg-${Date.now()}`,
-                name: 'Segment 1',
-                start_date: chart.start_date,
-                end_date: addDays(chart.start_date, 7),
-                progress: 0,
-              },
-            ]
-      );
+
+      const rawSegments = task.segments && task.segments.length > 0 ? task.segments : [];
+      if (rawSegments.length > 0) {
+        setSegments(
+          rawSegments.map((s) => {
+            const dur = calculateDurationFromDates(s.start_date, s.end_date, 'days') || 7;
+            return {
+              ...s,
+              durationVal: dur,
+              durationUnit: 'days' as DurationUnit,
+            };
+          })
+        );
+      } else {
+        const defStart = chart.start_date || formatDate(new Date());
+        const defEnd = calculateEndDate(defStart, 7, 'days');
+        setSegments([
+          {
+            id: `seg-${Date.now()}`,
+            name: 'Segment 1',
+            start_date: defStart,
+            end_date: defEnd,
+            progress: 0,
+            durationVal: 7,
+            durationUnit: 'days',
+          },
+        ]);
+      }
     } else {
       // New Task default
       setTitle('');
@@ -80,42 +161,40 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       setColor('indigo');
 
       // Default: 1 segment of 7 days starting from chart start or today
-      const defaultStart = chart.start_date || new Date().toISOString().slice(0, 10);
+      const defaultStart = chart.start_date || formatDate(new Date());
+      const defaultEnd = calculateEndDate(defaultStart, 7, 'days');
       setSegments([
         {
           id: `seg-${Date.now()}-1`,
           name: 'Segment 1',
           start_date: defaultStart,
-          end_date: addDays(defaultStart, 7),
+          end_date: defaultEnd,
           progress: 0,
+          durationVal: 7,
+          durationUnit: 'days',
         },
       ]);
     }
     setError('');
   }, [isOpen, task, chart]);
 
-  function addDays(dateStr: string, days: number): string {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
-
   const handleAddSegment = () => {
     const lastSeg = segments[segments.length - 1];
     let newStart = chart.start_date;
     if (lastSeg && lastSeg.end_date) {
-      // Suggest starting 7 days after the last segment ends (a 1-week gap!)
-      newStart = addDays(lastSeg.end_date, 7);
+      // Suggest starting 1 day or 7 days after the last segment ends
+      newStart = addDays(lastSeg.end_date, 1);
     }
-    const newEnd = addDays(newStart, 7);
+    const newEnd = calculateEndDate(newStart, 7, 'days');
 
-    const newSeg: GanttSegment = {
+    const newSeg: SegmentWithDuration = {
       id: `seg-${Date.now()}-${segments.length + 1}`,
-      name: `Segment ${segments.length + 1} (After Gap)`,
+      name: `Segment ${segments.length + 1}`,
       start_date: newStart,
       end_date: newEnd,
       progress: 0,
+      durationVal: 7,
+      durationUnit: 'days',
     };
     setSegments([...segments, newSeg]);
   };
@@ -125,9 +204,80 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
     setSegments(segments.filter((_, i) => i !== index));
   };
 
-  const handleSegmentChange = (index: number, field: keyof GanttSegment, val: any) => {
+  // 1. Selecting Start Date: automatically calculates and updates End Date
+  const handleSegmentStartDateChange = (idx: number, newStart: string) => {
     const updated = [...segments];
-    updated[index] = { ...updated[index], [field]: val };
+    const seg = updated[idx];
+    seg.start_date = newStart;
+
+    if (newStart && seg.durationVal > 0) {
+      const computedEnd = calculateEndDate(newStart, seg.durationVal, seg.durationUnit);
+      if (computedEnd) {
+        seg.end_date = computedEnd;
+      }
+    } else if (newStart && seg.end_date && newStart <= seg.end_date) {
+      seg.durationVal = calculateDurationFromDates(newStart, seg.end_date, seg.durationUnit);
+    }
+    setSegments(updated);
+  };
+
+  // 2. Changing Duration Value: automatically calculates and updates End Date
+  const handleSegmentDurationValChange = (idx: number, newVal: number) => {
+    const updated = [...segments];
+    const seg = updated[idx];
+    seg.durationVal = newVal;
+
+    if (seg.start_date && newVal > 0) {
+      const computedEnd = calculateEndDate(seg.start_date, newVal, seg.durationUnit);
+      if (computedEnd) {
+        seg.end_date = computedEnd;
+      }
+    }
+    setSegments(updated);
+  };
+
+  // 3. Changing Duration Unit: recalculates Duration Value or updates End Date
+  const handleSegmentDurationUnitChange = (idx: number, newUnit: DurationUnit) => {
+    const updated = [...segments];
+    const seg = updated[idx];
+    seg.durationUnit = newUnit;
+
+    if (seg.start_date && seg.end_date) {
+      const newDur = calculateDurationFromDates(seg.start_date, seg.end_date, newUnit);
+      seg.durationVal = newDur;
+    } else if (seg.start_date && seg.durationVal > 0) {
+      const computedEnd = calculateEndDate(seg.start_date, seg.durationVal, newUnit);
+      if (computedEnd) {
+        seg.end_date = computedEnd;
+      }
+    }
+    setSegments(updated);
+  };
+
+  // 4. Changing End Date: automatically recalculates Duration in selected unit
+  const handleSegmentEndDateChange = (idx: number, newEnd: string) => {
+    const updated = [...segments];
+    const seg = updated[idx];
+    seg.end_date = newEnd;
+
+    if (seg.start_date && newEnd) {
+      if (newEnd >= seg.start_date) {
+        const computedDur = calculateDurationFromDates(seg.start_date, newEnd, seg.durationUnit);
+        seg.durationVal = computedDur;
+      }
+    }
+    setSegments(updated);
+  };
+
+  const handleSegmentProgressChange = (idx: number, newProgress: number) => {
+    const updated = [...segments];
+    updated[idx].progress = newProgress;
+    setSegments(updated);
+  };
+
+  const handleSegmentNameChange = (idx: number, name: string) => {
+    const updated = [...segments];
+    updated[idx].name = name;
     setSegments(updated);
   };
 
@@ -161,15 +311,28 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       setIsSubmitting(true);
       setError('');
 
+      // Clean segment models without temporary duration state
+      const cleanedSegments: GanttSegment[] = segments.map((s) => ({
+        id: s.id,
+        name: s.name,
+        start_date: s.start_date,
+        end_date: s.end_date,
+        progress: s.progress,
+      }));
+
       const taskToSave: GanttTask = {
         id: task?.id || `gt-${Date.now()}`,
         title: title.trim(),
         description: description.trim(),
-        assigned_to: '',
-        priority: 'medium',
-        status: (segments.every((s) => s.progress === 100) ? 'completed' : segments.some((s) => s.progress > 0) ? 'in_progress' : 'pending'),
+        assigned_to: assignedTo || '',
+        priority: priority || 'medium',
+        status: cleanedSegments.every((s) => s.progress === 100)
+          ? 'completed'
+          : cleanedSegments.some((s) => s.progress > 0)
+          ? 'in_progress'
+          : 'pending',
         color,
-        segments,
+        segments: cleanedSegments,
         created_at: task?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -292,16 +455,16 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
             </div>
           </div>
 
-          {/* MULTI-SEGMENT BUILDER */}
+          {/* SCHEDULE SEGMENTS & DURATION BUILDER */}
           <div className="pt-3 border-t border-zinc-200">
             <div className="flex items-center justify-between mb-2.5">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-indigo-600" />
-                  Schedule Segments & Intervals
+                  Schedule Segments & Duration
                 </h3>
                 <p className="text-[11px] text-zinc-500">
-                  Add multiple work segments with gaps (e.g., 1 week now, a gap, then another week).
+                  Select start date and duration to auto-calculate end date, or edit end date to recalculate duration.
                 </p>
               </div>
               <button
@@ -314,30 +477,28 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
               </button>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {segments.map((seg, idx) => {
-                // calculate duration
-                let days = 0;
-                if (seg.start_date && seg.end_date) {
-                  const s = new Date(seg.start_date);
-                  const e = new Date(seg.end_date);
-                  days = Math.max(1, Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-                }
+                const totalSegDays =
+                  seg.start_date && seg.end_date
+                    ? calculateDurationFromDates(seg.start_date, seg.end_date, 'days')
+                    : 0;
 
                 return (
                   <div
                     key={seg.id || idx}
-                    className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2.5 relative group"
+                    className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl space-y-3 relative group shadow-2xs"
                   >
+                    {/* Segment Header */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-1">
-                        <span className="w-5 h-5 rounded-full bg-zinc-200 text-zinc-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                        <span className="w-5 h-5 rounded-full bg-zinc-200 text-zinc-800 text-[11px] font-bold flex items-center justify-center shrink-0">
                           {idx + 1}
                         </span>
                         <input
                           type="text"
                           value={seg.name || ''}
-                          onChange={(e) => handleSegmentChange(idx, 'name', e.target.value)}
+                          onChange={(e) => handleSegmentNameChange(idx, e.target.value)}
                           placeholder={`Segment ${idx + 1} Name`}
                           className="flex-1 text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900"
                         />
@@ -355,33 +516,73 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
+                    {/* Controls Grid: Start Date, Duration, End Date, Progress */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-end">
+                      {/* 1. Start Date */}
                       <div>
-                        <label className="block text-[10px] font-semibold text-zinc-500 mb-1">Start Date</label>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Start Date
+                        </label>
                         <input
                           type="date"
                           value={seg.start_date}
-                          onChange={(e) => handleSegmentChange(idx, 'start_date', e.target.value)}
-                          className="w-full text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900"
+                          onChange={(e) => handleSegmentStartDateChange(idx, e.target.value)}
+                          className="w-full text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900"
                           required
                         />
                       </div>
 
+                      {/* 2. Duration Value & Unit with automatic date syncing */}
                       <div>
-                        <label className="block text-[10px] font-semibold text-zinc-500 mb-1">End Date</label>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Duration
+                        </label>
+                        <div className="flex rounded-lg border border-zinc-200 bg-white overflow-hidden focus-within:ring-1 focus-within:ring-zinc-900">
+                          <input
+                            type="number"
+                            min="1"
+                            step={seg.durationUnit === 'days' ? '1' : '0.5'}
+                            value={seg.durationVal || ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              handleSegmentDurationValChange(idx, isNaN(val) ? 1 : val);
+                            }}
+                            className="w-16 px-2 py-1.5 text-xs text-zinc-900 border-r border-zinc-200 focus:outline-hidden"
+                            placeholder="7"
+                          />
+                          <select
+                            value={seg.durationUnit}
+                            onChange={(e) =>
+                              handleSegmentDurationUnitChange(idx, e.target.value as DurationUnit)
+                            }
+                            className="flex-1 px-1.5 py-1.5 text-xs text-zinc-700 bg-zinc-50 border-0 focus:outline-hidden cursor-pointer"
+                          >
+                            <option value="days">Days</option>
+                            <option value="weeks">Weeks</option>
+                            <option value="months">Months</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* 3. End Date with automatic duration recalculation */}
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          End Date
+                        </label>
                         <input
                           type="date"
                           value={seg.end_date}
-                          onChange={(e) => handleSegmentChange(idx, 'end_date', e.target.value)}
-                          className="w-full text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900"
+                          onChange={(e) => handleSegmentEndDateChange(idx, e.target.value)}
+                          className="w-full text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900"
                           required
                         />
                       </div>
 
+                      {/* 4. Completion Progress */}
                       <div>
-                        <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-500 mb-1">
+                        <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-600 mb-1">
                           <span>Progress</span>
-                          <span>{seg.progress ?? 0}%</span>
+                          <span className="font-bold text-zinc-900">{seg.progress ?? 0}%</span>
                         </div>
                         <input
                           type="range"
@@ -389,19 +590,25 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
                           max="100"
                           step="5"
                           value={seg.progress ?? 0}
-                          onChange={(e) => handleSegmentChange(idx, 'progress', parseInt(e.target.value) || 0)}
-                          className="w-full accent-zinc-900 cursor-pointer"
+                          onChange={(e) => handleSegmentProgressChange(idx, parseInt(e.target.value) || 0)}
+                          className="w-full accent-zinc-900 cursor-pointer h-1.5 mt-2 bg-zinc-200 rounded-lg"
                         />
                       </div>
                     </div>
 
-                    {days > 0 && (
-                      <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1 border-t border-zinc-100">
-                        <span>
-                          Duration: <strong className="text-zinc-800">{days} days</strong> (~{(days / 7).toFixed(1)} wks)
+                    {/* Segment Summary Badge */}
+                    {totalSegDays > 0 && (
+                      <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1.5 border-t border-zinc-200/80">
+                        <span className="flex items-center gap-1.5">
+                          <span>Duration:</span>
+                          <strong className="text-zinc-900 font-bold">{totalSegDays} Days</strong>
+                          <span className="text-zinc-400">
+                            (~{(totalSegDays / 7).toFixed(1)} wks / ~{(totalSegDays / 30.4).toFixed(1)} mos)
+                          </span>
                         </span>
+
                         {idx > 0 && segments[idx - 1]?.end_date && seg.start_date && (
-                          <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-semibold text-[10px]">
+                          <span className="text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-semibold text-[10px]">
                             Gap from previous:{' '}
                             {Math.max(
                               0,

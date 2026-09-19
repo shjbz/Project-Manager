@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { X, CalendarRange, Calendar, AlertCircle, Clock } from 'lucide-react';
-import type { Project } from '../../types';
+import type { Project, GanttChart } from '../../types';
 
 interface GanttChartModalProps {
   isOpen: boolean;
   onClose: () => void;
   projects: Project[];
   initialProjectId?: string;
+  chart?: GanttChart | null;
   onSave: (chartData: {
+    id?: string;
     project_id: string;
     title: string;
     start_date: string;
@@ -75,11 +77,12 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
   onClose,
   projects,
   initialProjectId,
+  chart,
   onSave,
 }) => {
   const activeProjects = projects.filter((p) => !p.is_archived);
 
-  const [projectId, setProjectId] = useState(initialProjectId || activeProjects[0]?.id || '');
+  const [projectId, setProjectId] = useState(chart?.project_id || initialProjectId || activeProjects[0]?.id || '');
   const [title, setTitle] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -89,42 +92,55 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Auto-fill dates and title from selected project on open
+  // Auto-fill dates and title from selected project or existing chart on open
   useEffect(() => {
     if (!isOpen) return;
 
-    const targetProjId = initialProjectId || projectId || activeProjects[0]?.id || '';
-    setProjectId(targetProjId);
+    if (chart) {
+      // Editing existing chart
+      setProjectId(chart.project_id);
+      setTitle(chart.title || '');
+      setStartDate(chart.start_date);
+      setEndDate(chart.end_date);
+      const days = calculateDurationFromDates(chart.start_date, chart.end_date, 'days');
+      setDurationValue(days || 60);
+      setDurationUnit('days');
+      setNotes(chart.notes || '');
+    } else {
+      // Creating new chart
+      const targetProjId = initialProjectId || projectId || activeProjects[0]?.id || '';
+      setProjectId(targetProjId);
 
-    const proj = projects.find((p) => p.id === targetProjId);
-    if (proj) {
-      setTitle(`${proj.project_name} - Master Gantt Chart`);
-      const sDate = proj.start_date || formatDate(new Date());
-      setStartDate(sDate);
+      const proj = projects.find((p) => p.id === targetProjId);
+      if (proj) {
+        setTitle(`${proj.project_name} - Master Gantt Chart`);
+        const sDate = proj.start_date || formatDate(new Date());
+        setStartDate(sDate);
 
-      if (proj.expected_completion_date) {
-        setEndDate(proj.expected_completion_date);
-        const days = calculateDurationFromDates(sDate, proj.expected_completion_date, 'days');
-        setDurationValue(days || 60);
-        setDurationUnit('days');
+        if (proj.expected_completion_date) {
+          setEndDate(proj.expected_completion_date);
+          const days = calculateDurationFromDates(sDate, proj.expected_completion_date, 'days');
+          setDurationValue(days || 60);
+          setDurationUnit('days');
+        } else {
+          const calculatedEnd = calculateEndDate(sDate, 60, 'days');
+          setEndDate(calculatedEnd);
+          setDurationValue(60);
+          setDurationUnit('days');
+        }
+        setNotes(proj.description || '');
       } else {
-        const calculatedEnd = calculateEndDate(sDate, 60, 'days');
+        const today = formatDate(new Date());
+        const calculatedEnd = calculateEndDate(today, 60, 'days');
+        setTitle('Project Master Gantt Chart');
+        setStartDate(today);
         setEndDate(calculatedEnd);
         setDurationValue(60);
         setDurationUnit('days');
       }
-      setNotes(proj.description || '');
-    } else {
-      const today = formatDate(new Date());
-      const calculatedEnd = calculateEndDate(today, 60, 'days');
-      setTitle('Project Master Gantt Chart');
-      setStartDate(today);
-      setEndDate(calculatedEnd);
-      setDurationValue(60);
-      setDurationUnit('days');
     }
     setError('');
-  }, [isOpen, initialProjectId]);
+  }, [isOpen, initialProjectId, chart]);
 
   // Handle Project Selection
   const handleProjectSelect = (id: string) => {
@@ -225,6 +241,7 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
       setIsSubmitting(true);
       setError('');
       await onSave({
+        id: chart?.id,
         project_id: projectId,
         title: title.trim(),
         start_date: startDate,
@@ -233,7 +250,7 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to create Gantt chart');
+      setError(err?.message || 'Failed to save Gantt chart');
     } finally {
       setIsSubmitting(false);
     }
@@ -252,8 +269,12 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
               <CalendarRange className="w-4 h-4 text-amber-400" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-zinc-900 leading-tight">Create Gantt Chart</h2>
-              <p className="text-xs text-zinc-500">Timeline & multi-segment schedule for your project</p>
+              <h2 className="text-base font-bold text-zinc-900 leading-tight">
+                {chart ? 'Edit Gantt Chart' : 'Create Gantt Chart'}
+              </h2>
+              <p className="text-xs text-zinc-500">
+                {chart ? 'Update schedule name, dates, duration and details' : 'Timeline & multi-segment schedule for your project'}
+              </p>
             </div>
           </div>
           <button
@@ -418,7 +439,7 @@ export const GanttChartModal: React.FC<GanttChartModalProps> = ({
               disabled={isSubmitting}
               className="px-4 py-2 text-xs font-bold text-white bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 rounded-xl transition cursor-pointer shadow-xs"
             >
-              {isSubmitting ? 'Creating...' : 'Create Gantt Chart'}
+              {isSubmitting ? 'Saving...' : chart ? 'Save Changes' : 'Create Gantt Chart'}
             </button>
           </div>
         </form>

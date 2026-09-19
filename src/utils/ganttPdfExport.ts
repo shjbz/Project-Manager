@@ -7,6 +7,7 @@ interface ExportOptions {
   tasks: GanttTask[];
   previewMode: 'days' | 'weeks';
   companySettings?: CompanySettings | null;
+  showCompletion?: boolean;
 }
 
 // Helper to convert hex or named color to RGB
@@ -58,28 +59,14 @@ function downloadBlob(blob: Blob, filename: string) {
   }, 1500);
 }
 
-export async function exportGanttToA3Pdf({
+export async function exportGanttToPdf({
   chart,
   project,
   tasks,
   previewMode,
   companySettings,
+  showCompletion = true,
 }: ExportOptions): Promise<void> {
-  // A3 Landscape dimensions in mm: 420mm x 297mm
-  const pdf = new jsPDF({
-    orientation: 'landscape',
-    unit: 'mm',
-    format: 'a3',
-  });
-
-  const pageWidth = 420;
-  const pageHeight = 297;
-  const marginX = 14;
-  const marginTop = 14;
-  const marginBottom = 12;
-  const usableWidth = pageWidth - marginX * 2; // 392 mm
-  const usableHeight = pageHeight - marginTop - marginBottom; // 271 mm
-
   const projectName = project?.project_name || chart.project_name || chart.title || 'Project Schedule';
   const chartTitle = chart.title || projectName;
   const clientName = project?.client?.name || project?.client?.company || 'N/A';
@@ -87,12 +74,12 @@ export async function exportGanttToA3Pdf({
   const startDate = chart.start_date;
   const endDate = chart.end_date;
 
-  // Timeline days calculation
+  // Timeline dates calculation
   const start = new Date(startDate);
   const end = new Date(endDate);
   const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
-  // Generate days array
+  // Generate days array (Friday & Saturday marked as weekends in GCC)
   const daysList: Array<{ dateStr: string; dayNum: number; dayInitial: string; isWeekend: boolean; monthYear: string }> = [];
   const initials = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const cur = new Date(start);
@@ -103,62 +90,100 @@ export async function exportGanttToA3Pdf({
       dateStr: dStr,
       dayNum: cur.getDate(),
       dayInitial: initials[dayOfWeek],
-      isWeekend: dayOfWeek === 5, // Friday weekend in GCC
+      isWeekend: dayOfWeek === 5 || dayOfWeek === 6,
       monthYear: cur.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
     });
     cur.setDate(cur.getDate() + 1);
   }
 
-  // Weeks list for weeks preview
+  // Weeks list for weeks preview (Concise W1, W2, W3... to completely avoid overlapping)
   const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
   const weeksList: Array<{ weekNum: number; label: string; startDay: number; endDay: number }> = [];
   for (let w = 0; w < totalWeeks; w++) {
     const sIndex = w * 7;
     const eIndex = Math.min(daysList.length - 1, sIndex + 6);
-    const sDate = daysList[sIndex]?.dateStr || '';
-    const eDate = daysList[eIndex]?.dateStr || '';
     weeksList.push({
       weekNum: w + 1,
-      label: `W${w + 1} (${sDate.slice(5)} - ${eDate.slice(5)})`,
+      label: `W${w + 1}`, // Short label without overlapping date ranges
       startDay: sIndex,
       endDay: eIndex,
     });
   }
 
   // -------------------------------------------------------------
-  // 1. TOP HEADER BANNER (Native Vector)
+  // DYNAMIC PAGE SIZING (No fixed page size limitation)
+  // Calculates width & height based on tasks and schedule length
+  // -------------------------------------------------------------
+  const marginX = 14; // mm
+  const marginTop = 14; // mm
+  const marginBottom = 12; // mm
+  const leftColWidth = 82; // mm for task titles
+
+  // Calculate ideal column and timeline width
+  let colWidth = 0;
+  let timelineWidth = 0;
+
+  if (previewMode === 'days') {
+    // 9mm per day gives clear, comfortable room for day numbers & initials
+    colWidth = Math.max(9, 280 / Math.max(1, daysList.length));
+    timelineWidth = daysList.length * colWidth;
+  } else {
+    // 22mm per week gives ample space for W1, W2...
+    colWidth = Math.max(22, 280 / Math.max(1, totalWeeks));
+    timelineWidth = totalWeeks * colWidth;
+  }
+
+  const usableWidth = leftColWidth + timelineWidth;
+  const pageWidth = Math.max(297, usableWidth + marginX * 2); // Minimum A4 landscape width (297mm), expands as needed
+  const actualTimelineWidth = (pageWidth - marginX * 2) - leftColWidth;
+  
+  // Re-adjust colWidth to stretch precisely across the full page width
+  if (previewMode === 'days') {
+    colWidth = actualTimelineWidth / daysList.length;
+  } else {
+    colWidth = actualTimelineWidth / totalWeeks;
+  }
+  const timelineStartX = marginX + leftColWidth;
+
+  // Calculate dynamic page height based on tasks
+  const headerHeight = previewMode === 'days' ? 12 : 9;
+  const rowHeight = 11; // 11mm per task row
+  const taskCount = Math.max(1, tasks.length);
+  const tableTotalHeight = headerHeight + taskCount * rowHeight;
+  const contentHeight = marginTop + 28 + tableTotalHeight + 14 + marginBottom;
+  const pageHeight = Math.max(210, contentHeight); // Minimum A4 height (210mm), expands as needed
+
+  // Instantiate jsPDF with dynamic custom dimensions
+  const pdf = new jsPDF({
+    orientation: pageWidth >= pageHeight ? 'landscape' : 'portrait',
+    unit: 'mm',
+    format: [pageWidth, pageHeight],
+  });
+
+  // -------------------------------------------------------------
+  // 1. TOP HEADER BANNER (Clean, without unnecessary A3 text)
   // -------------------------------------------------------------
   let currentY = marginTop;
 
   // Top company eyebrow
   pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(9);
+  pdf.setFontSize(8.5);
   pdf.setTextColor(100, 116, 139);
-  pdf.text(companyName.toUpperCase() + '  •  MASTER PROJECT SCHEDULE', marginX, currentY);
-
-  // Single Page A3 Landscape Badge (Top Right)
-  const badgeText = `A3 LANDSCAPE • ${previewMode.toUpperCase()} VIEW`;
-  pdf.setFillColor(241, 245, 249);
-  pdf.setDrawColor(203, 213, 225);
-  pdf.setLineWidth(0.3);
-  pdf.roundedRect(pageWidth - marginX - 58, currentY - 4, 58, 7, 1.5, 1.5, 'FD');
-  pdf.setTextColor(15, 23, 42);
-  pdf.setFontSize(8);
-  pdf.text(badgeText, pageWidth - marginX - 29, currentY + 0.8, { align: 'center' });
-
-  currentY += 7;
-
-  // Main Gantt Title (Prominent)
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(18);
-  pdf.setTextColor(15, 23, 42);
-  pdf.text(chartTitle, marginX, currentY);
+  pdf.text(companyName.toUpperCase() + '  •  PROJECT SCHEDULE', marginX, currentY);
 
   currentY += 6;
 
+  // Main Gantt Title (Prominent)
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(15, 23, 42);
+  pdf.text(chartTitle, marginX, currentY);
+
+  currentY += 5.5;
+
   // Subtitle Metadata Line
   pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(9);
+  pdf.setFontSize(8.5);
   pdf.setTextColor(71, 85, 105);
   const metaText = `Project: ${projectName}   |   Client: ${clientName}   |   Timeline: ${startDate} to ${endDate} (${totalDays} Days)   |   Tasks: ${tasks.length}   |   Generated: ${new Date().toLocaleDateString('en-US')}`;
   pdf.text(metaText, marginX, currentY);
@@ -167,34 +192,25 @@ export async function exportGanttToA3Pdf({
 
   // Divider line
   pdf.setDrawColor(226, 232, 240);
-  pdf.setLineWidth(0.4);
-  pdf.line(marginX, currentY, marginX + usableWidth, currentY);
+  pdf.setLineWidth(0.35);
+  pdf.line(marginX, currentY, marginX + (pageWidth - marginX * 2), currentY);
 
-  currentY += 4;
+  currentY += 3.5;
 
   // -------------------------------------------------------------
-  // 2. TIMELINE TABLE GEOMETRY
+  // 2. TIMELINE TABLE FRAME & HEADER
   // -------------------------------------------------------------
-  const leftColWidth = 78; // 78 mm for task titles
-  const timelineWidth = usableWidth - leftColWidth; // 314 mm for calendar timeline
-  const timelineStartX = marginX + leftColWidth;
-
-  const headerHeight = previewMode === 'days' ? 12 : 9;
-  const availableTableHeight = usableHeight - (currentY - marginTop) - 8; // Leave 8mm for footer
-  const taskCount = Math.max(1, tasks.length);
-  // Row height auto scales to fit comfortably on single page
-  const rowHeight = Math.min(14, Math.max(7.5, (availableTableHeight - headerHeight) / taskCount));
+  const fullTableWidth = pageWidth - marginX * 2;
 
   // Table Outer Frame Box
-  const tableTotalHeight = headerHeight + taskCount * rowHeight;
   pdf.setFillColor(255, 255, 255);
   pdf.setDrawColor(203, 213, 225);
   pdf.setLineWidth(0.3);
-  pdf.rect(marginX, currentY, usableWidth, tableTotalHeight, 'S');
+  pdf.rect(marginX, currentY, fullTableWidth, tableTotalHeight, 'S');
 
   // Header Background
   pdf.setFillColor(248, 250, 252);
-  pdf.rect(marginX, currentY, usableWidth, headerHeight, 'F');
+  pdf.rect(marginX, currentY, fullTableWidth, headerHeight, 'F');
 
   // Left Column Header Text
   pdf.setFont('helvetica', 'bold');
@@ -210,8 +226,6 @@ export async function exportGanttToA3Pdf({
   // 3. CALENDAR HEADER (Days or Weeks)
   // -------------------------------------------------------------
   if (previewMode === 'days') {
-    const colWidth = timelineWidth / daysList.length;
-
     // Month Groups
     let currentMonth = '';
     let monthStartIdx = 0;
@@ -220,7 +234,6 @@ export async function exportGanttToA3Pdf({
     daysList.forEach((d, idx) => {
       if (d.monthYear !== currentMonth) {
         if (currentMonth !== '') {
-          // Draw previous month group header
           const mStartX = timelineStartX + monthStartIdx * colWidth;
           const mWidth = monthDaysCount * colWidth;
           pdf.setFillColor(241, 245, 249);
@@ -252,29 +265,32 @@ export async function exportGanttToA3Pdf({
     // Day Initial & Number Row
     daysList.forEach((d, idx) => {
       const dX = timelineStartX + idx * colWidth;
+      
+      // Light grey subtly visible for weekend column headers (3 RGB arguments)
       if (d.isWeekend) {
-        pdf.setFillColor(254, 243, 199); // Soft amber for weekend
+        pdf.setFillColor(243, 244, 246); // Light grey (zinc-100)
         pdf.rect(dX, currentY + 5.5, colWidth, 6.5, 'F');
       }
 
       pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.2);
       pdf.line(dX + colWidth, currentY + 5.5, dX + colWidth, currentY + headerHeight);
 
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(colWidth < 4 ? 4.5 : 6);
-      pdf.setTextColor(d.isWeekend ? 180 : 71, d.isWeekend ? 83 : 85, d.isWeekend ? 9 : 105);
+      pdf.setFontSize(colWidth < 5 ? 4.5 : 6);
+      pdf.setTextColor(d.isWeekend ? 148 : 71, d.isWeekend ? 163 : 85, d.isWeekend ? 184 : 105);
       pdf.text(String(d.dayNum), dX + colWidth / 2, currentY + 10.2, { align: 'center' });
     });
   } else {
-    // Weeks Preview Header
-    const colWidth = timelineWidth / weeksList.length;
+    // Weeks Preview Header (Simple W1, W2... centered with no overlap)
     weeksList.forEach((w, idx) => {
       const wX = timelineStartX + idx * colWidth;
       pdf.setDrawColor(226, 232, 240);
+      pdf.setLineWidth(0.2);
       pdf.line(wX + colWidth, currentY, wX + colWidth, currentY + headerHeight);
 
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
+      pdf.setFontSize(8);
       pdf.setTextColor(15, 23, 42);
       pdf.text(w.label, wX + colWidth / 2, currentY + headerHeight / 2 + 1.2, { align: 'center' });
     });
@@ -282,7 +298,7 @@ export async function exportGanttToA3Pdf({
 
   // Header bottom border
   pdf.setDrawColor(203, 213, 225);
-  pdf.line(marginX, currentY + headerHeight, marginX + usableWidth, currentY + headerHeight);
+  pdf.line(marginX, currentY + headerHeight, marginX + fullTableWidth, currentY + headerHeight);
 
   currentY += headerHeight;
 
@@ -295,16 +311,15 @@ export async function exportGanttToA3Pdf({
 
     // Row Background (Zebra Striping)
     if (!isEven) {
-      pdf.setFillColor(248, 250, 252);
-      pdf.rect(marginX, rowY, usableWidth, rowHeight, 'F');
+      pdf.setFillColor(249, 250, 251);
+      pdf.rect(marginX, rowY, fullTableWidth, rowHeight, 'F');
     }
 
-    // Weekend column shading in background of timeline area
+    // Weekend column shading: Light grey subtly visible (3 RGB integers: 243, 244, 246)
     if (previewMode === 'days') {
-      const colWidth = timelineWidth / daysList.length;
       daysList.forEach((d, idx) => {
         if (d.isWeekend) {
-          pdf.setFillColor(254, 243, 199, 0.4);
+          pdf.setFillColor(243, 244, 246); // Light grey - never black!
           pdf.rect(timelineStartX + idx * colWidth, rowY, colWidth, rowHeight, 'F');
         }
       });
@@ -312,21 +327,22 @@ export async function exportGanttToA3Pdf({
 
     // Row bottom divider
     pdf.setDrawColor(226, 232, 240);
-    pdf.line(marginX, rowY + rowHeight, marginX + usableWidth, rowY + rowHeight);
+    pdf.setLineWidth(0.2);
+    pdf.line(marginX, rowY + rowHeight, marginX + fullTableWidth, rowY + rowHeight);
 
-    // Left Column: Task Title
+    // Left Column: Task Title & Description
     pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(rowHeight < 10 ? 7.5 : 8.5);
+    pdf.setFontSize(8);
     pdf.setTextColor(15, 23, 42);
 
-    const safeTitle = task.title.length > 38 ? task.title.substring(0, 36) + '...' : task.title;
+    const safeTitle = task.title.length > 42 ? task.title.substring(0, 40) + '...' : task.title;
     pdf.text(safeTitle, marginX + 3.5, rowY + (task.description ? rowHeight * 0.42 : rowHeight * 0.58));
 
-    if (task.description && rowHeight >= 10) {
+    if (task.description) {
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(6.5);
       pdf.setTextColor(148, 163, 184);
-      const safeDesc = task.description.length > 44 ? task.description.substring(0, 42) + '...' : task.description;
+      const safeDesc = task.description.length > 50 ? task.description.substring(0, 48) + '...' : task.description;
       pdf.text(safeDesc, marginX + 3.5, rowY + rowHeight * 0.78);
     }
 
@@ -346,16 +362,15 @@ export async function exportGanttToA3Pdf({
       let barWidth = 0;
 
       if (previewMode === 'days') {
-        const colWidth = timelineWidth / daysList.length;
         barLeftX = timelineStartX + segStartDay * colWidth;
         barWidth = Math.max(colWidth, segDurationDays * colWidth);
       } else {
-        barLeftX = timelineStartX + (segStartDay / 7) * (timelineWidth / totalWeeks);
-        barWidth = Math.max(4, (segDurationDays / 7) * (timelineWidth / totalWeeks));
+        barLeftX = timelineStartX + (segStartDay / 7) * colWidth;
+        barWidth = Math.max(4, (segDurationDays / 7) * colWidth);
       }
 
       // Bar Dimensions
-      const barPaddingY = Math.max(1.2, rowHeight * 0.16);
+      const barPaddingY = 1.8;
       const barHeight = rowHeight - barPaddingY * 2;
       const barY = rowY + barPaddingY;
 
@@ -365,33 +380,44 @@ export async function exportGanttToA3Pdf({
       pdf.setLineWidth(0.2);
       pdf.roundedRect(barLeftX, barY, barWidth, barHeight, 1.2, 1.2, 'FD');
 
-      // Draw Inner Progress Fill
-      if (seg.progress > 0) {
+      // Draw Inner Progress Fill (if showCompletion is enabled)
+      if (showCompletion && seg.progress > 0) {
         const progressWidth = (barWidth * seg.progress) / 100;
         pdf.setFillColor(Math.max(0, r - 45), Math.max(0, g - 45), Math.max(0, b - 45));
         pdf.roundedRect(barLeftX, barY, progressWidth, barHeight, 1.2, 1.2, 'F');
       }
 
       // Text inside Bar
-      if (barWidth > 14 && barHeight >= 4.5) {
+      if (barWidth > 12 && barHeight >= 4.5) {
         pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(barHeight < 6 ? 5.5 : 6.5);
+        pdf.setFontSize(6.5);
         pdf.setTextColor(255, 255, 255);
-        const barLabel = `${seg.start_date.slice(5)} to ${seg.end_date.slice(5)} (${seg.progress}%)`;
-        pdf.text(barLabel, barLeftX + 2, barY + barHeight / 2 + 1);
+        let barLabel = '';
+        if (showCompletion) {
+          barLabel =
+            barWidth > 26
+              ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)} (${seg.progress}%)`
+              : `${seg.progress}%`;
+        } else {
+          barLabel = barWidth > 26 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : '';
+        }
+
+        if (barLabel) {
+          pdf.text(barLabel, barLeftX + 2, barY + barHeight / 2 + 1);
+        }
       }
     });
   });
 
   // -------------------------------------------------------------
-  // 5. FOOTER
+  // 5. FOOTER (Clean, without A3 or single page mentions)
   // -------------------------------------------------------------
   const footerY = pageHeight - marginBottom + 3;
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(7.5);
   pdf.setTextColor(148, 163, 184);
-  pdf.text('Falcon Operations Management System • Single Page A3 Landscape Schedule • Confidential', marginX, footerY);
-  pdf.text(`Page 1 of 1 • Official Project Document`, pageWidth - marginX, footerY, { align: 'right' });
+  pdf.text(`${companyName} • Confidential`, marginX, footerY);
+  pdf.text(`Project Schedule`, marginX + fullTableWidth, footerY, { align: 'right' });
 
   // -------------------------------------------------------------
   // 6. SAVE & DOWNLOAD (Direct jsPDF + Blob Fallback)
@@ -400,7 +426,7 @@ export async function exportGanttToA3Pdf({
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '-')
     .replace(/-+/g, '-');
-  const filename = `${safeFilename}-gantt-schedule-a3.pdf`;
+  const filename = `${safeFilename}-schedule.pdf`;
 
   try {
     pdf.save(filename);
@@ -410,3 +436,6 @@ export async function exportGanttToA3Pdf({
     downloadBlob(pdfBlob, filename);
   }
 }
+
+// Export alias for backwards compatibility
+export const exportGanttToA3Pdf = exportGanttToPdf;

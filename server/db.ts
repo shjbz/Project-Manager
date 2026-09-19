@@ -1618,6 +1618,7 @@ export class Database {
 
     this.data.gantt_charts.push(newChart);
     this.save();
+    mysqlDb.syncGanttChart(newChart).catch((err) => console.error('[MySQL] syncGanttChart error:', err));
     return newChart;
   }
 
@@ -1636,6 +1637,7 @@ export class Database {
 
     this.data.gantt_charts[idx] = updated;
     this.save();
+    mysqlDb.syncGanttChart(updated).catch((err) => console.error('[MySQL] syncGanttChart error:', err));
     return updated;
   }
 

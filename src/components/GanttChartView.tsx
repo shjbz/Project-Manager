@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Clock,
   Loader2,
+  Percent,
 } from 'lucide-react';
 import type { GanttChart, GanttTask, GanttSegment, Project, TeamMember, CompanySettings } from '../types';
 import { exportGanttToA3Pdf } from '../utils/ganttPdfExport';
@@ -28,6 +29,7 @@ interface GanttChartViewProps {
   selectedChartId?: string | null;
   onSelectChart?: (chartId: string | null) => void;
   onOpenNewChart: (projectId?: string) => void;
+  onEditChart?: (chart: GanttChart) => void;
   onOpenTaskModal: (chart: GanttChart, task?: GanttTask) => void;
   onDeleteChart: (chartId: string) => Promise<void> | void;
   onDeleteTask: (chartId: string, taskId: string) => Promise<void> | void;
@@ -41,6 +43,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   selectedChartId,
   onSelectChart,
   onOpenNewChart,
+  onEditChart,
   onOpenTaskModal,
   onDeleteChart,
   onDeleteTask,
@@ -57,6 +60,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   const [cardsSearchQuery, setCardsSearchQuery] = useState('');
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [previewMode, setPreviewMode] = useState<'days' | 'weeks'>('days');
+  const [showCompletion, setShowCompletion] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -102,7 +106,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
         dayNumber: curr.getDate(),
         dayOfWeek,
         dayInitial: dayInitials[dayOfWeek],
-        isWeekend: dayOfWeek === 5,
+        isWeekend: dayOfWeek === 5 || dayOfWeek === 6,
         monthYear: curr.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         monthShort: curr.toLocaleDateString('en-US', { month: 'short' }),
       });
@@ -272,11 +276,12 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
         tasks: filteredTasks,
         previewMode,
         companySettings,
+        showCompletion,
       });
 
       setExportNotice({
         type: 'success',
-        message: 'A3 Landscape Gantt PDF exported & downloaded successfully!',
+        message: 'Gantt schedule PDF exported & downloaded successfully!',
       });
       setTimeout(() => setExportNotice(null), 5000);
     } catch (err: any) {
@@ -429,19 +434,33 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                         )}
                       </div>
 
-                      {/* Delete Chart Button on card */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete Gantt chart "${chart.title || proj?.project_name}"?`)) {
-                            onDeleteChart(chart.id);
-                          }
-                        }}
-                        className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
-                        title="Delete Gantt schedule"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Actions: Edit & Delete Chart */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {onEditChart && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditChart(chart);
+                            }}
+                            className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                            title="Edit schedule name, dates, duration and notes"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete Gantt chart "${chart.title || proj?.project_name}"?`)) {
+                              onDeleteChart(chart.id);
+                            }
+                          }}
+                          className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          title="Delete Gantt schedule"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Client & Date Info */}
@@ -630,12 +649,38 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             </button>
           </div>
 
-          {/* Export PDF Button (Single Page A3 Landscape) */}
+          {/* Show / Hide Completion % Button */}
+          <button
+            onClick={() => setShowCompletion((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer shadow-2xs ${
+              showCompletion
+                ? 'bg-zinc-900 text-white border-zinc-900 hover:bg-zinc-800'
+                : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+            }`}
+            title={showCompletion ? 'Hide completion percentage on timeline bars and PDF export' : 'Show completion percentage on timeline bars and PDF export'}
+          >
+            <Percent className="w-3.5 h-3.5" />
+            <span>{showCompletion ? 'Completion: On' : 'Completion: Off'}</span>
+          </button>
+
+          {/* Edit Chart Button */}
+          {onEditChart && (
+            <button
+              onClick={() => onEditChart(activeChart)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
+              title="Edit schedule name, dates, duration and notes"
+            >
+              <Edit2 className="w-3.5 h-3.5 text-zinc-700" />
+              <span>Edit Chart</span>
+            </button>
+          )}
+
+          {/* Export PDF Button */}
           <button
             onClick={handleExportPdf}
             disabled={isExportingPdf}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Export Single Page A3 Landscape PDF"
+            title="Export Gantt Schedule PDF"
           >
             {isExportingPdf ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500" />
@@ -796,7 +841,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                             key={day.dateStr}
                             style={{ width: `${dayColWidth}px` }}
                             className={`flex flex-col items-center justify-center shrink-0 ${
-                              day.isWeekend ? 'bg-amber-100/60 text-amber-950 font-bold' : ''
+                              day.isWeekend ? 'bg-zinc-100 text-zinc-600 font-medium' : ''
                             } ${isToday ? 'bg-zinc-900 text-white font-bold' : ''}`}
                             title={`${day.dateStr} (${day.isWeekend ? 'Weekend' : 'Workday'})`}
                           >
@@ -850,7 +895,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                                   key={day.dateStr}
                                   style={{ width: `${dayColWidth}px` }}
                                   className={`h-full shrink-0 ${
-                                    day.isWeekend ? 'bg-amber-50/35' : ''
+                                    day.isWeekend ? 'bg-zinc-100/60' : ''
                                   } ${day.dateStr === todayStr ? 'bg-zinc-100/40' : ''}`}
                                 />
                               ))
@@ -913,26 +958,34 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                               } text-white shadow-xs flex items-center justify-between px-2 text-[11px] font-bold cursor-pointer hover:scale-[1.01] hover:shadow-md transition z-10 overflow-hidden group/bar`}
                               title={`${task.title} (${seg.start_date} to ${seg.end_date}): ${seg.progress}%`}
                             >
-                              {/* Inner Progress Fill */}
-                              <div
-                                style={{
-                                  width: `${seg.progress}%`,
-                                  ...(colorStyles.progressStyle || {}),
-                                }}
-                                className={`absolute inset-y-0 left-0 ${
-                                  colorStyles.progressClass || 'bg-black/20'
-                                } transition-all pointer-events-none`}
-                              />
+                              {/* Inner Progress Fill (only when showCompletion is true) */}
+                              {showCompletion && seg.progress > 0 && (
+                                <div
+                                  style={{
+                                    width: `${seg.progress}%`,
+                                    ...(colorStyles.progressStyle || {}),
+                                  }}
+                                  className={`absolute inset-y-0 left-0 ${
+                                    colorStyles.progressClass || 'bg-black/20'
+                                  } transition-all pointer-events-none`}
+                                />
+                              )}
 
                               {/* Label */}
                               <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
-                                {widthPx > 70 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : `${seg.progress}%`}
+                                {widthPx > 70
+                                  ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}`
+                                  : showCompletion
+                                  ? `${seg.progress}%`
+                                  : ''}
                               </span>
 
-                              {/* Progress % */}
-                              <span className="relative z-10 text-[10px] font-bold shrink-0">
-                                {seg.progress}%
-                              </span>
+                              {/* Progress % (only when showCompletion is true) */}
+                              {showCompletion && (
+                                <span className="relative z-10 text-[10px] font-bold shrink-0">
+                                  {seg.progress}%
+                                </span>
+                              )}
                             </div>
                           );
                         })}
