@@ -14,12 +14,16 @@ import {
   FolderKanban,
   ExternalLink,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Clock,
   Loader2,
   Percent,
+  FileSpreadsheet,
 } from 'lucide-react';
 import type { GanttChart, GanttTask, GanttSegment, Project, TeamMember, CompanySettings } from '../types';
 import { exportGanttToA3Pdf } from '../utils/ganttPdfExport';
+import { exportGanttToExcel } from '../utils/ganttExcelExport';
 
 interface GanttChartViewProps {
   charts: GanttChart[];
@@ -33,6 +37,7 @@ interface GanttChartViewProps {
   onOpenTaskModal: (chart: GanttChart, task?: GanttTask) => void;
   onDeleteChart: (chartId: string) => Promise<void> | void;
   onDeleteTask: (chartId: string, taskId: string) => Promise<void> | void;
+  onReorderTasks?: (chartId: string, updatedTasks: GanttTask[]) => Promise<void> | void;
   onViewProjectDetail?: (projectId: string) => void;
 }
 
@@ -47,8 +52,9 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   onOpenTaskModal,
   onDeleteChart,
   onDeleteTask,
+  onReorderTasks,
   onViewProjectDetail,
-}) => {
+}: GanttChartViewProps) => {
   // Navigation mode: 'cards' or 'details'
   // If selectedChartId is provided, show details for that chart. Otherwise, show cards.
   const activeChart = useMemo(() => {
@@ -62,6 +68,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
   const [previewMode, setPreviewMode] = useState<'days' | 'weeks'>('days');
   const [showCompletion, setShowCompletion] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [exportNotice, setExportNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Synchronized scroll refs: Left task list (no horizontal scrollbar) and right calendar (with horizontal scrollbar)
@@ -293,6 +300,58 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
       setTimeout(() => setExportNotice(null), 6000);
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  // Excel Export Handler: Generates editable .xlsx file with whole cell solid coloring
+  const handleExportExcel = async () => {
+    if (!activeChart) return;
+    try {
+      setIsExportingExcel(true);
+      setExportNotice(null);
+
+      await exportGanttToExcel({
+        chart: activeChart,
+        project: currentProject || undefined,
+        tasks: filteredTasks,
+        previewMode,
+        companySettings,
+        showCompletion,
+      });
+
+      setExportNotice({
+        type: 'success',
+        message: 'Gantt schedule Excel file (.xlsx) exported & downloaded successfully!',
+      });
+      setTimeout(() => setExportNotice(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to export Gantt Excel:', err);
+      setExportNotice({
+        type: 'error',
+        message: err?.message || 'Failed to export Excel file. Please try again.',
+      });
+      setTimeout(() => setExportNotice(null), 6000);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  // Reorder Task Handler (Move Up / Down)
+  const handleMoveTask = async (taskId: string, direction: 'up' | 'down') => {
+    if (!activeChart) return;
+    const currentTasks = [...activeChart.tasks];
+    const idx = currentTasks.findIndex((t) => t.id === taskId);
+    if (idx < 0) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= currentTasks.length) return;
+
+    // Swap positions
+    const temp = currentTasks[idx];
+    currentTasks[idx] = currentTasks[targetIdx];
+    currentTasks[targetIdx] = temp;
+
+    if (onReorderTasks) {
+      await onReorderTasks(activeChart.id, currentTasks);
     }
   };
 
@@ -667,8 +726,8 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
           <button
             onClick={handleExportPdf}
             disabled={isExportingPdf}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
-            title="Export Gantt Schedule PDF"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 hover:border-zinc-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Export Gantt Schedule as PDF document"
           >
             {isExportingPdf ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500" />
@@ -676,6 +735,21 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
               <Download className="w-3.5 h-3.5 text-zinc-700" />
             )}
             <span>{isExportingPdf ? 'Exporting...' : 'Export PDF'}</span>
+          </button>
+
+          {/* Export Excel Button (.xlsx with solid whole-cell colors) */}
+          <button
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-950 border border-emerald-200 hover:border-emerald-300 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer disabled:opacity-50"
+            title="Export editable Excel spreadsheet (.xlsx) with whole cell solid coloring"
+          >
+            {isExportingExcel ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
           </button>
 
           {/* Add Task */}
@@ -761,24 +835,48 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                   No tasks scheduled. Click <strong>+ Add Task</strong> to begin.
                 </div>
               ) : (
-                filteredTasks.map((task) => (
+                filteredTasks.map((task, idx) => (
                   <div
                     key={task.id}
                     className="h-15 px-3 flex items-center justify-between gap-2 hover:bg-zinc-50 transition group"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold text-zinc-900 truncate" title={task.title}>
-                        {task.title}
-                      </div>
-                      {task.description && (
-                        <div className="text-[10px] text-zinc-400 truncate mt-0.5">
-                          {task.description}
+                    <div className="min-w-0 flex-1 flex items-start gap-2">
+                      <span className="text-[10px] font-bold text-zinc-400 bg-zinc-100 rounded px-1.5 py-0.5 mt-0.5 shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-zinc-900 truncate" title={task.title}>
+                          {task.title}
                         </div>
-                      )}
+                        {task.description && (
+                          <div className="text-[10px] text-zinc-400 truncate mt-0.5">
+                            {task.description}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Edit & Delete Action Buttons */}
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                    {/* Reorder Up/Down & Action Buttons */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
+                      <div className="flex items-center bg-zinc-100 rounded-md p-0.5 border border-zinc-200">
+                        <button
+                          onClick={() => handleMoveTask(task.id, 'up')}
+                          disabled={idx === 0}
+                          className="p-1 text-zinc-500 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
+                          title="Move task up"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleMoveTask(task.id, 'down')}
+                          disabled={idx === filteredTasks.length - 1}
+                          className="p-1 text-zinc-500 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
+                          title="Move task down"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
                       <button
                         onClick={() => onOpenTaskModal(activeChart, task)}
                         className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
@@ -970,21 +1068,24 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                                 />
                               )}
 
-                              {/* Label */}
-                              <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
-                                {widthPx > 70
-                                  ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}`
-                                  : showCompletion
-                                  ? `${seg.progress}%`
-                                  : ''}
-                              </span>
-
-                              {/* Progress % (only when showCompletion is true) */}
-                              {showCompletion && (
-                                <span className="relative z-10 text-[10px] font-bold shrink-0">
-                                  {seg.progress}%
-                                </span>
-                              )}
+                              {/* Clean Bar Content: Free of dates; displays custom bar text if set, or completion % if toggled on */}
+                              {(() => {
+                                const customText = seg.bar_label || task.custom_bar_label || '';
+                                return (
+                                  <>
+                                    {customText && (
+                                      <span className="relative z-10 truncate max-w-[80%] font-bold text-[10px]">
+                                        {customText}
+                                      </span>
+                                    )}
+                                    {showCompletion && (
+                                      <span className={`relative z-10 text-[10px] font-bold shrink-0 ${!customText ? 'mx-auto' : ''}`}>
+                                        {seg.progress}%
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           );
                         })}

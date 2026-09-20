@@ -109,6 +109,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
   const [priority, setPriority] = useState<Priority>('medium');
   const [status, setStatus] = useState<TaskStatus>('pending');
   const [color, setColor] = useState('indigo');
+  const [customBarLabel, setCustomBarLabel] = useState('');
   const [segments, setSegments] = useState<SegmentWithDuration[]>([]);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -123,6 +124,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       setPriority(task.priority || 'medium');
       setStatus(task.status || 'pending');
       setColor(task.color || 'indigo');
+      setCustomBarLabel(task.custom_bar_label || '');
 
       const rawSegments = task.segments && task.segments.length > 0 ? task.segments : [];
       if (rawSegments.length > 0) {
@@ -131,6 +133,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
             const dur = calculateDurationFromDates(s.start_date, s.end_date, 'days') || 7;
             return {
               ...s,
+              bar_label: s.bar_label || '',
               durationVal: dur,
               durationUnit: 'days' as DurationUnit,
             };
@@ -146,6 +149,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
             start_date: defStart,
             end_date: defEnd,
             progress: 0,
+            bar_label: '',
             durationVal: 7,
             durationUnit: 'days',
           },
@@ -159,6 +163,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       setPriority('medium');
       setStatus('pending');
       setColor('indigo');
+      setCustomBarLabel('');
 
       // Default: 1 segment of 7 days starting from chart start or today
       const defaultStart = chart.start_date || formatDate(new Date());
@@ -170,6 +175,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
           start_date: defaultStart,
           end_date: defaultEnd,
           progress: 0,
+          bar_label: '',
           durationVal: 7,
           durationUnit: 'days',
         },
@@ -193,6 +199,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
       start_date: newStart,
       end_date: newEnd,
       progress: 0,
+      bar_label: '',
       durationVal: 7,
       durationUnit: 'days',
     };
@@ -202,6 +209,12 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
   const handleRemoveSegment = (index: number) => {
     if (segments.length <= 1) return;
     setSegments(segments.filter((_, i) => i !== index));
+  };
+
+  const handleSegmentBarLabelChange = (idx: number, label: string) => {
+    const updated = [...segments];
+    updated[idx].bar_label = label;
+    setSegments(updated);
   };
 
   // 1. Selecting Start Date: automatically calculates and updates End Date
@@ -318,6 +331,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
         start_date: s.start_date,
         end_date: s.end_date,
         progress: s.progress,
+        bar_label: s.bar_label?.trim() || undefined,
       }));
 
       const taskToSave: GanttTask = {
@@ -332,6 +346,7 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
           ? 'in_progress'
           : 'pending',
         color,
+        custom_bar_label: customBarLabel.trim() || undefined,
         segments: cleanedSegments,
         created_at: task?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -452,6 +467,23 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
                 {!color.startsWith('#') && <Palette className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />}
                 {color.startsWith('#') && <CheckCircle2 className="w-3.5 h-3.5 text-white pointer-events-none" />}
               </label>
+            </div>
+
+            {/* Custom Bar Text (Optional) */}
+            <div className="mt-3 pt-3 border-t border-zinc-200/60">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-zinc-700">
+                  Timeline Bar Text <span className="text-zinc-400 font-normal">(Optional)</span>
+                </label>
+                <span className="text-[10px] text-zinc-500 font-medium">Leave blank for clean solid bar with no text</span>
+              </div>
+              <input
+                type="text"
+                value={customBarLabel}
+                onChange={(e) => setCustomBarLabel(e.target.value)}
+                placeholder="e.g. Substructure Works (Leave blank for clean solid bar instead of dates)"
+                className="w-full text-xs bg-white border border-zinc-200 rounded-xl px-3 py-2 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400"
+              />
             </div>
           </div>
 
@@ -594,6 +626,21 @@ export const GanttTaskModal: React.FC<GanttTaskModalProps> = ({
                           className="w-full accent-zinc-900 cursor-pointer h-1.5 mt-2 bg-zinc-200 rounded-lg"
                         />
                       </div>
+                    </div>
+
+                    {/* Segment Specific Bar Text (Optional) */}
+                    <div>
+                      <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-600 mb-1">
+                        <span>Segment Bar Text (Optional override)</span>
+                        <span className="text-[10px] text-zinc-400 font-normal">Leave blank to use task bar text or keep bar plain</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={seg.bar_label || ''}
+                        onChange={(e) => handleSegmentBarLabelChange(idx, e.target.value)}
+                        placeholder={customBarLabel || 'Leave blank for clean solid bar with no text'}
+                        className="w-full text-xs bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-900 focus:outline-hidden focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400"
+                      />
                     </div>
 
                     {/* Segment Summary Badge */}

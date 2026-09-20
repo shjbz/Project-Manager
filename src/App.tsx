@@ -526,6 +526,15 @@ export default function App() {
     await loadAllData();
   };
 
+  const handleReorderGanttTasks = async (chartId: string, updatedTasks: GanttTask[]) => {
+    // Optimistic local state update for instant UI feedback
+    setGanttCharts((prev) =>
+      prev.map((c) => (c.id === chartId ? { ...c, tasks: updatedTasks } : c))
+    );
+    await api.updateGanttChart(chartId, { tasks: updatedTasks });
+    await loadAllData();
+  };
+
   // Loading Screen for initial session check
   if (authChecking) {
     return (
@@ -709,6 +718,7 @@ export default function App() {
                 }}
                 onDeleteChart={handleDeleteGanttChart}
                 onDeleteTask={handleDeleteGanttTask}
+                onReorderTasks={handleReorderGanttTasks}
                 onViewProjectDetail={(pId) => setSelectedProjectId(pId)}
               />
             ) : currentNav === 'calendar' ? (

@@ -154,6 +154,7 @@ export interface GanttSegment {
   end_date: string; // YYYY-MM-DD
   progress?: number; // 0 - 100
   notes?: string;
+  bar_label?: string; // custom text to display inside the solid bar (leave empty for clean solid bar with no text)
 }
 
 export interface GanttTask {
@@ -164,6 +165,7 @@ export interface GanttTask {
   priority: Priority;
   status: TaskStatus;
   color?: string; // e.g. 'indigo' | 'emerald' | 'amber' | 'sky' | 'rose' | 'violet'
+  custom_bar_label?: string; // optional task-level custom bar label
   segments: GanttSegment[];
   created_at?: string;
   updated_at?: string;

@@ -393,13 +393,13 @@ export async function exportGanttToPdf({
         pdf.setFontSize(6.5);
         pdf.setTextColor(255, 255, 255);
         let barLabel = '';
-        if (showCompletion) {
-          barLabel =
-            barWidth > 26
-              ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)} (${seg.progress}%)`
-              : `${seg.progress}%`;
-        } else {
-          barLabel = barWidth > 26 ? `${seg.start_date.slice(5)} → ${seg.end_date.slice(5)}` : '';
+        const customText = seg.bar_label || task.custom_bar_label || '';
+        if (customText) {
+          barLabel = showCompletion && seg.progress !== undefined
+            ? `${customText} (${seg.progress}%)`
+            : customText;
+        } else if (showCompletion && seg.progress !== undefined) {
+          barLabel = `${seg.progress}%`;
         }
 
         if (barLabel) {
