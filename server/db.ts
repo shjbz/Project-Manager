@@ -978,17 +978,23 @@ export class Database {
         .map((a) => ({ ...a, team_member: a.team_member_id ? teamMap.get(a.team_member_id) : undefined }))
         .sort((a, b) => b.activity_date.localeCompare(a.activity_date) || b.created_at.localeCompare(a.created_at));
 
-      // Latest past follow-up (<= todayStr)
-      const pastFollowUps = projectFollowUps.filter((f) => f.follow_up_date <= todayStr);
-      const last_follow_up = pastFollowUps[0] || projectFollowUps[projectFollowUps.length - 1];
+      // Latest past or completed follow-up (<= todayStr or completed)
+      const pastOrCompletedFollowUps = projectFollowUps
+        .filter((f) => f.status === 'completed' || f.follow_up_date <= todayStr)
+        .sort((a, b) => b.follow_up_date.localeCompare(a.follow_up_date));
+      const last_follow_up = pastOrCompletedFollowUps[0] || undefined;
 
       // Next upcoming or pending follow-up
-      const pendingFollowUps = projectFollowUps.filter((f) => f.status !== 'completed');
-      const next_follow_up = pendingFollowUps.find((f) => f.follow_up_date >= todayStr) || pendingFollowUps[0];
+      const pendingFollowUps = projectFollowUps
+        .filter((f) => f.status !== 'completed')
+        .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+      const next_follow_up = pendingFollowUps.find((f) => f.follow_up_date >= todayStr) || pendingFollowUps[0] || undefined;
 
-      // Next pending task
-      const pendingTasks = projectTasks.filter((t) => t.status !== 'completed');
-      const next_task = pendingTasks[0];
+      // Next pending task (earliest due date)
+      const pendingTasks = projectTasks
+        .filter((t) => t.status !== 'completed')
+        .sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
+      const next_task = pendingTasks[0] || undefined;
 
       // Check overdue status
       const hasOverdueTask = pendingTasks.some((t) => t.due_date < todayStr);
@@ -1046,7 +1052,7 @@ export class Database {
         list = list.filter((p) => p.status === filter.status);
       }
       if (filter.leadId && filter.leadId !== 'all') {
-        list = list.filter((p) => p.project_lead_id === filter.leadId || p.team_member_ids?.includes(filter.leadId!));
+        list = list.filter((p) => p.project_lead_id === filter.leadId);
       }
       if (filter.clientId && filter.clientId !== 'all') {
         list = list.filter((p) => p.client_id === filter.clientId);

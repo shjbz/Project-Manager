@@ -189,6 +189,109 @@ export function getEffectiveProjectStatus(project: { status: string }): ProjectS
   return normalizeProjectStatus(project.status);
 }
 
+export interface ProjectFollowUpStatus {
+  lastDate: string | null;
+  lastDescription: string | null;
+  nextDate: string | null;
+  nextDescription: string | null;
+}
+
+/**
+ * Returns the next pending task for a project (earliest due date).
+ */
+export function getNextPendingTask<T extends { status?: string; due_date?: string; title?: string }>(project: {
+  tasks?: T[];
+  next_task?: T | null;
+}): T | null {
+  if (project.tasks && project.tasks.length > 0) {
+    const pending = project.tasks
+      .filter((t) => t.status !== 'completed' && (t.status as any) !== 'cancelled')
+      .sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
+    if (pending.length > 0) return pending[0];
+  }
+  if (project.next_task && project.next_task.status !== 'completed' && (project.next_task.status as any) !== 'cancelled') {
+    return project.next_task;
+  }
+  return null;
+}
+
+/**
+ * Resolves follow-up status (Last and Next) for a project.
+ * Returns date and description for Last and Next, or null if None.
+ */
+export function getProjectFollowUpStatus(project: {
+  follow_ups?: Array<{
+    status?: string;
+    follow_up_date?: string;
+    notes?: string;
+  }>;
+  last_follow_up?: {
+    status?: string;
+    follow_up_date?: string;
+    notes?: string;
+  } | null;
+  next_follow_up?: {
+    status?: string;
+    follow_up_date?: string;
+    notes?: string;
+  } | null;
+}): ProjectFollowUpStatus {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const followUps = project.follow_ups || [];
+
+  // Determine Last follow-up: completed follow-ups or past follow-ups (<= today)
+  let lastItem: { status?: string; follow_up_date?: string; notes?: string } | null = null;
+  if (followUps.length > 0) {
+    const pastOrDone = followUps
+      .filter((f) => f.status === 'completed' || (f.follow_up_date && f.follow_up_date <= todayStr))
+      .sort((a, b) => (b.follow_up_date || '').localeCompare(a.follow_up_date || ''));
+    if (pastOrDone.length > 0) {
+      lastItem = pastOrDone[0];
+    }
+  }
+  if (!lastItem && project.last_follow_up) {
+    // Only use if not strictly in the future pending
+    if (project.last_follow_up.status === 'completed' || (project.last_follow_up.follow_up_date && project.last_follow_up.follow_up_date <= todayStr)) {
+      lastItem = project.last_follow_up;
+    }
+  }
+
+  // Determine Next follow-up: pending follow-ups
+  let nextItem: { status?: string; follow_up_date?: string; notes?: string } | null = null;
+  if (followUps.length > 0) {
+    // Upcoming pending (>= today)
+    const upcoming = followUps
+      .filter((f) => f.status !== 'completed' && f.follow_up_date && f.follow_up_date >= todayStr)
+      .sort((a, b) => (a.follow_up_date || '').localeCompare(b.follow_up_date || ''));
+    if (upcoming.length > 0) {
+      nextItem = upcoming[0];
+    } else {
+      // Any pending follow-up
+      const anyPending = followUps
+        .filter((f) => f.status !== 'completed')
+        .sort((a, b) => (a.follow_up_date || '').localeCompare(b.follow_up_date || ''));
+      if (anyPending.length > 0) {
+        nextItem = anyPending[0];
+      }
+    }
+  }
+  if (!nextItem && project.next_follow_up && project.next_follow_up.status !== 'completed') {
+    nextItem = project.next_follow_up;
+  }
+
+  // If last and next point to the exact same pending follow up, it is Next, not Last
+  if (lastItem && nextItem && lastItem === nextItem && lastItem.status !== 'completed') {
+    lastItem = null;
+  }
+
+  return {
+    lastDate: lastItem?.follow_up_date || null,
+    lastDescription: lastItem?.notes?.trim() || null,
+    nextDate: nextItem?.follow_up_date || null,
+    nextDescription: nextItem?.notes?.trim() || null,
+  };
+}
+
 export type HealthStatus = 'on_track' | 'follow_up_needed' | 'at_risk' | 'overdue' | 'completed';
 
 export type ProjectType =

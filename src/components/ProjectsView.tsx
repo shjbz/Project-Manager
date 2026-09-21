@@ -93,7 +93,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       const auto = getAutomatedProjectStatus(p);
       if (auto.status !== situation) return false;
     }
-    if (leadId !== 'all' && p.project_lead_id !== leadId && !p.team_member_ids?.includes(leadId)) {
+    if (leadId !== 'all' && p.project_lead_id !== leadId) {
       return false;
     }
     if (clientId !== 'all' && p.client_id !== clientId) return false;
@@ -375,7 +375,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <th className="py-3 px-4">Priority</th>
                   <th className="py-3 px-4">Project Status</th>
                   <th className="py-3 px-4">Situation</th>
-                  <th className="py-3 px-4">Last Follow-up</th>
+                  <th className="py-3 px-4">Follow-up Status</th>
                   <th className="py-3 px-4">Next Task</th>
                   <th className="py-3 px-4">Due</th>
                 </tr>

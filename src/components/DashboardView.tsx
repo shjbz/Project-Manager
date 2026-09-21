@@ -19,7 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, DashboardStats, Priority, ProjectStatus } from '../types';
-import { getAutomatedProjectStatus, normalizeProjectStatus } from '../types';
+import { getAutomatedProjectStatus, normalizeProjectStatus, getNextPendingTask } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface DashboardViewProps {
@@ -137,7 +137,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const auto = getAutomatedProjectStatus(p);
         if (auto.status !== situationFilter) return false;
       }
-      if (leadFilter !== 'all' && p.project_lead_id !== leadFilter && !p.team_member_ids?.includes(leadFilter)) {
+      if (leadFilter !== 'all' && p.project_lead_id !== leadFilter) {
         return false;
       }
       if (dueDateFilter === 'overdue') {
@@ -163,11 +163,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const bThisWeek = isProjectDueThisWeek(b);
         if (aThisWeek && !bThisWeek) return -1;
         if (!aThisWeek && bThisWeek) return 1;
-        return (a.next_task?.due_date || '9999').localeCompare(b.next_task?.due_date || '9999');
+        const tA = getNextPendingTask(a)?.due_date || a.expected_completion_date || '9999';
+        const tB = getNextPendingTask(b)?.due_date || b.expected_completion_date || '9999';
+        return tA.localeCompare(tB);
       }
       if (sortBy === 'due_date') {
-        const dA = a.next_task?.due_date || a.expected_completion_date || '9999';
-        const dB = b.next_task?.due_date || b.expected_completion_date || '9999';
+        const dA = getNextPendingTask(a)?.due_date || a.expected_completion_date || '9999';
+        const dB = getNextPendingTask(b)?.due_date || b.expected_completion_date || '9999';
         return dA.localeCompare(dB);
       }
       if (sortBy === 'name') {
@@ -714,7 +716,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-3 px-4">Priority</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Situation</th>
-                    <th className="py-3 px-4">Last Follow-up</th>
+                    <th className="py-3 px-4">Follow-up Status</th>
                     <th className="py-3 px-4">Next Task</th>
                     <th className="py-3 px-4">Due</th>
                   </tr>

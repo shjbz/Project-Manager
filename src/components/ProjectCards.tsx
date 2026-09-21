@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calendar, User, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Project } from '../types';
+import { getNextPendingTask, getProjectFollowUpStatus } from '../types';
 import { PriorityBadge, StatusBadge, AutomatedStatusBadge } from './Badges';
 
 interface ProjectCardProps {
@@ -9,14 +10,20 @@ interface ProjectCardProps {
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
-  const isOverdue = project.is_overdue;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nextPendingTask = getNextPendingTask(project);
+  const followUpStatus = getProjectFollowUpStatus(project);
+
+  const isDueOverdue = nextPendingTask?.due_date
+    ? nextPendingTask.due_date < todayStr
+    : Boolean(project.is_overdue);
 
   return (
     <div
       id={`project-card-${project.id}`}
       onClick={onClick}
       className={`bg-white border rounded-xl p-5 hover:shadow-md transition-all duration-150 cursor-pointer flex flex-col justify-between group ${
-        isOverdue ? 'border-rose-300 ring-1 ring-rose-200/60' : 'border-zinc-200/90 hover:border-zinc-300'
+        isDueOverdue ? 'border-rose-300 ring-1 ring-rose-200/60' : 'border-zinc-200/90 hover:border-zinc-300'
       }`}
     >
       <div>
@@ -59,40 +66,83 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
           </div>
         </div>
 
-        {/* Tracking items: Last follow-up & Next task */}
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between text-zinc-600">
-            <span className="text-zinc-600 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-zinc-600" />
-              <span>Last Follow-up:</span>
-            </span>
-            <span className="font-medium text-zinc-800">
-              {project.last_follow_up?.follow_up_date || '—'}
-            </span>
+        {/* Tracking items: Follow-up Status, Next Task & Due */}
+        <div className="space-y-2.5 text-xs">
+          {/* Follow-up Status: Last and Next */}
+          <div className="bg-zinc-50/70 rounded-lg p-2.5 border border-zinc-200/60 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-zinc-500 flex items-center gap-1.5">
+              <Clock className="w-3 h-3 text-zinc-400" />
+              <span>Follow-up Status:</span>
+            </div>
+            <div className="text-[11px] space-y-1">
+              <div
+                className="flex items-baseline gap-1.5 truncate text-zinc-700"
+                title={
+                  followUpStatus.lastDate
+                    ? `Last: ${followUpStatus.lastDate}${followUpStatus.lastDescription ? ` - ${followUpStatus.lastDescription}` : ''}`
+                    : 'Last: None'
+                }
+              >
+                <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Last:</span>
+                {followUpStatus.lastDate ? (
+                  <span className="truncate">
+                    <span className="font-semibold text-zinc-900">{followUpStatus.lastDate}</span>
+                    {followUpStatus.lastDescription && (
+                      <span className="text-zinc-500 font-normal"> - {followUpStatus.lastDescription}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-zinc-400 font-normal">None</span>
+                )}
+              </div>
+              <div
+                className="flex items-baseline gap-1.5 truncate text-zinc-700"
+                title={
+                  followUpStatus.nextDate
+                    ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}`
+                    : 'Next: None'
+                }
+              >
+                <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Next:</span>
+                {followUpStatus.nextDate ? (
+                  <span className="truncate">
+                    <span className="font-semibold text-amber-800">{followUpStatus.nextDate}</span>
+                    {followUpStatus.nextDescription && (
+                      <span className="text-zinc-500 font-normal"> - {followUpStatus.nextDescription}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-zinc-400 font-normal">None</span>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex items-start justify-between gap-2">
             <span className="text-zinc-600 flex items-center gap-1.5 shrink-0">
-              <CheckCircle2 className="w-3.5 h-3.5 text-zinc-600" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
               <span>Next Task:</span>
             </span>
-            <span className="font-medium text-zinc-800 text-right truncate">
-              {project.next_task?.title || 'No pending tasks'}
+            <span
+              className="font-medium text-zinc-800 text-right truncate"
+              title={nextPendingTask?.title || 'No pending tasks'}
+            >
+              {nextPendingTask?.title || <span className="text-zinc-400 italic">None</span>}
             </span>
           </div>
 
           <div className="flex items-center justify-between">
             <span className="text-zinc-600 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-zinc-600" />
+              <Calendar className="w-3.5 h-3.5 text-zinc-500" />
               <span>Due:</span>
             </span>
             <span
               className={`font-semibold ${
-                isOverdue ? 'text-rose-600 flex items-center gap-1' : 'text-zinc-700'
+                isDueOverdue ? 'text-rose-600 flex items-center gap-1 font-bold' : 'text-zinc-800'
               }`}
             >
-              {isOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500" />}
-              {project.next_task?.due_date || project.expected_completion_date || '—'}
+              {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500" />}
+              {nextPendingTask?.due_date || project.expected_completion_date || '—'}
             </span>
           </div>
         </div>
@@ -114,14 +164,20 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
 };
 
 export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => {
-  const isOverdue = project.is_overdue;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nextPendingTask = getNextPendingTask(project);
+  const followUpStatus = getProjectFollowUpStatus(project);
+
+  const isDueOverdue = nextPendingTask?.due_date
+    ? nextPendingTask.due_date < todayStr
+    : Boolean(project.is_overdue);
 
   return (
     <tr
       id={`project-row-${project.id}`}
       onClick={onClick}
       className={`border-b border-zinc-200 hover:bg-zinc-50/90 transition cursor-pointer text-xs ${
-        isOverdue ? 'bg-rose-50/30' : ''
+        isDueOverdue ? 'bg-rose-50/30' : ''
       }`}
     >
       {/* Project name & type */}
@@ -161,26 +217,74 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
         <AutomatedStatusBadge project={project} size="sm" showSublabel={true} />
       </td>
 
-      {/* Last Follow-up */}
-      <td className="py-3 px-4 text-zinc-600 whitespace-nowrap">
-        {project.last_follow_up?.follow_up_date || '—'}
+      {/* Follow-up Status: Last and Next */}
+      <td className="py-3 px-4 min-w-[200px] max-w-[280px]">
+        <div className="text-[11px] leading-snug space-y-0.5">
+          <div
+            className="flex items-baseline gap-1.5 truncate text-zinc-700"
+            title={
+              followUpStatus.lastDate
+                ? `Last: ${followUpStatus.lastDate}${followUpStatus.lastDescription ? ` - ${followUpStatus.lastDescription}` : ''}`
+                : 'Last: None'
+            }
+          >
+            <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Last:</span>
+            {followUpStatus.lastDate ? (
+              <span className="truncate">
+                <span className="font-semibold text-zinc-900">{followUpStatus.lastDate}</span>
+                {followUpStatus.lastDescription && (
+                  <span className="text-zinc-600 font-normal"> - {followUpStatus.lastDescription}</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-zinc-400 font-normal">None</span>
+            )}
+          </div>
+          <div
+            className="flex items-baseline gap-1.5 truncate text-zinc-700"
+            title={
+              followUpStatus.nextDate
+                ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}`
+                : 'Next: None'
+            }
+          >
+            <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Next:</span>
+            {followUpStatus.nextDate ? (
+              <span className="truncate">
+                <span className="font-semibold text-amber-800">{followUpStatus.nextDate}</span>
+                {followUpStatus.nextDescription && (
+                  <span className="text-zinc-600 font-normal"> - {followUpStatus.nextDescription}</span>
+                )}
+              </span>
+            ) : (
+              <span className="text-zinc-400 font-normal">None</span>
+            )}
+          </div>
+        </div>
       </td>
 
       {/* Next Task */}
       <td className="py-3 px-4 text-zinc-800 max-w-xs truncate font-medium">
-        {project.next_task?.title || <span className="text-zinc-400 italic">None</span>}
+        {nextPendingTask?.title || <span className="text-zinc-400 italic">None</span>}
       </td>
 
-      {/* Due Date */}
+      {/* Due Date: next task due date if pending tasks exist, otherwise expected completion */}
       <td className="py-3 px-4 whitespace-nowrap">
-        <span
-          className={`font-semibold ${
-            isOverdue ? 'text-rose-600 flex items-center gap-1' : 'text-zinc-700'
-          }`}
-        >
-          {isOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500" />}
-          {project.next_task?.due_date || project.expected_completion_date || '—'}
-        </span>
+        {nextPendingTask?.due_date ? (
+          <span
+            className={`font-semibold inline-flex items-center gap-1.5 ${
+              isDueOverdue ? 'text-rose-600 font-bold' : 'text-zinc-800'
+            }`}
+            title={`Next Task Due: ${nextPendingTask.title || 'Task'} (${nextPendingTask.due_date})`}
+          >
+            {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+            <span>{nextPendingTask.due_date}</span>
+          </span>
+        ) : (
+          <span className="text-zinc-500 font-medium" title="Target completion date">
+            {project.expected_completion_date || '—'}
+          </span>
+        )}
       </td>
     </tr>
   );
