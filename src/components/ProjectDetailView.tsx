@@ -21,8 +21,7 @@ import {
   Archive,
 } from 'lucide-react';
 import type { Project, TeamMember, Task, FollowUp } from '../types';
-import { getEffectiveProjectStatus } from '../types';
-import { PriorityBadge, StatusBadge } from './Badges';
+import { PriorityBadge, StatusBadge, AutomatedStatusBadge } from './Badges';
 import { ConfirmModal } from './modals/ConfirmModal';
 
 interface ProjectDetailViewProps {
@@ -81,7 +80,6 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 
   const isOverdue = project.is_overdue;
   const otherMembers = (project.team_members || []).filter((m) => m.id !== project.project_lead_id);
-  const effectiveStatus = getEffectiveProjectStatus(project);
 
   const completedFollowUps = (project.follow_ups || [])
     .filter((f) => f.status === 'completed')
@@ -213,14 +211,10 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
       <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-xs">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
               <PriorityBadge priority={project.priority} size="md" />
-              <StatusBadge status={effectiveStatus} size="md" />
-              {isOverdue && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-rose-100 text-rose-800 rounded-md">
-                  <AlertCircle className="w-3.5 h-3.5" /> ATTENTION OVERDUE
-                </span>
-              )}
+              <StatusBadge status={project.status} size="md" />
+              <AutomatedStatusBadge project={project} size="md" showSublabel={true} />
             </div>
             <h1 className="text-2xl font-bold text-zinc-950 tracking-tight">
               {project.project_name}
@@ -244,7 +238,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 value={project.priority}
                 disabled={updating}
                 onChange={(e) => handlePriorityChange(e.target.value)}
-                className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800"
+                className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800 cursor-pointer"
               >
                 <option value="high">High</option>
                 <option value="standard">Standard</option>
@@ -252,17 +246,15 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
               </select>
             </div>
             <div className="border-l border-zinc-200 pl-2">
-              <span className="text-[10px] uppercase font-bold text-zinc-400 block px-1">Status</span>
+              <span className="text-[10px] uppercase font-bold text-zinc-400 block px-1">Project Status</span>
               <select
                 id="quick-status-select"
                 value={project.status}
                 disabled={updating}
                 onChange={(e) => handleStatusChange(e.target.value)}
-                className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800"
+                className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800 cursor-pointer"
               >
                 <option value="active">Active</option>
-                <option value="need_attention">Need Attention</option>
-                <option value="at_risk">At Risk</option>
                 <option value="on_hold">On Hold</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>

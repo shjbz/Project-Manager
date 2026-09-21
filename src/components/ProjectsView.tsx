@@ -12,7 +12,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, Priority, ProjectStatus } from '../types';
-import { getEffectiveProjectStatus } from '../types';
+import { getAutomatedProjectStatus, normalizeProjectStatus } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface ProjectsViewProps {
@@ -36,6 +36,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [search, setSearch] = useState('');
   const [priority, setPriority] = useState<string>('all');
   const [status, setStatus] = useState<string>('all');
+  const [situation, setSituation] = useState<string>('all');
   const [leadId, setLeadId] = useState<string>(preselectedLeadId || 'all');
   const [clientId, setClientId] = useState<string>('all');
   const [projectType, setProjectType] = useState<string>('all');
@@ -82,15 +83,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       if (priority === 'standard' && p.priority !== 'standard') return false;
       if (priority === 'low' && p.priority !== 'low') return false;
     }
+    // Manual Project Status
     if (status !== 'all') {
-      const effective = getEffectiveProjectStatus(p);
-      if (status === 'need_attention') {
-        if (effective !== 'need_attention' && p.status !== 'need_attention' && p.status !== 'follow_up_pending') return false;
-      } else if (status === 'active') {
-        if (effective !== 'active' && p.status !== 'active') return false;
-      } else if (p.status !== status) {
-        return false;
-      }
+      const norm = normalizeProjectStatus(p.status);
+      if (norm !== status) return false;
+    }
+    // Automated Situation (On track / Work in Progress / Need attention)
+    if (situation !== 'all') {
+      const auto = getAutomatedProjectStatus(p);
+      if (auto.status !== situation) return false;
     }
     if (leadId !== 'all' && p.project_lead_id !== leadId && !p.team_member_ids?.includes(leadId)) {
       return false;
@@ -251,19 +252,29 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <option value="low">Low</option>
           </select>
 
-          {/* Status */}
+          {/* Project Status (Manual) */}
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-700"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">All Project Statuses</option>
             <option value="active">Active</option>
-            <option value="need_attention">Need Attention</option>
-            <option value="at_risk">At Risk</option>
             <option value="on_hold">On Hold</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
+          </select>
+
+          {/* Operational Situation (Automated) */}
+          <select
+            value={situation}
+            onChange={(e) => setSituation(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-700 font-medium"
+          >
+            <option value="all">All Situations</option>
+            <option value="on_track">🟢 On track (Everything Done)</option>
+            <option value="in_progress">🟠 Work in Progress (Tasks/Follow-up Pending)</option>
+            <option value="need_attention">🔴 Need attention (Overdue Task/Followup)</option>
           </select>
 
           {/* Lead */}
@@ -321,12 +332,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           </select>
 
           {/* Reset button */}
-          {(search || priority !== 'all' || status !== 'all' || leadId !== 'all' || clientId !== 'all' || projectType !== 'all' || dueDate !== 'all') && (
+          {(search || priority !== 'all' || status !== 'all' || situation !== 'all' || leadId !== 'all' || clientId !== 'all' || projectType !== 'all' || dueDate !== 'all') && (
             <button
               onClick={() => {
                 setSearch('');
                 setPriority('all');
                 setStatus('all');
+                setSituation('all');
                 setLeadId('all');
                 setClientId('all');
                 setProjectType('all');
@@ -361,7 +373,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <th className="py-3 px-4">Client</th>
                   <th className="py-3 px-4">Project Lead</th>
                   <th className="py-3 px-4">Priority</th>
-                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Project Status</th>
+                  <th className="py-3 px-4">Situation</th>
                   <th className="py-3 px-4">Last Follow-up</th>
                   <th className="py-3 px-4">Next Task</th>
                   <th className="py-3 px-4">Due</th>

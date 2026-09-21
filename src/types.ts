@@ -2,41 +2,191 @@ export type Priority = 'urgent' | 'high' | 'standard' | 'medium' | 'low';
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed';
 
+// Project Status is strictly manually selected by the user
 export type ProjectStatus =
   | 'active'
-  | 'need_attention'
-  | 'follow_up_pending'
-  | 'at_risk'
   | 'on_hold'
   | 'completed'
   | 'cancelled';
 
 /**
- * Computes dynamic project status:
- * - At Risk, On Hold, Completed, and Cancelled are preserved as manually set.
- * - For Active / Need Attention:
- *   If there are any pending/in-progress tasks or pending follow-ups, shows 'need_attention'.
- *   Once all tasks/follow-ups are completed, automatically returns to 'active'.
+ * Normalizes any project status to the 4 strictly manual options.
  */
-export function getEffectiveProjectStatus(project: {
-  status: ProjectStatus;
-  tasks?: Array<{ status: string }>;
-  follow_ups?: Array<{ status?: string }>;
-}): ProjectStatus {
-  if (
-    project.status === 'at_risk' ||
-    project.status === 'on_hold' ||
-    project.status === 'completed' ||
-    project.status === 'cancelled'
-  ) {
-    return project.status;
-  }
-  const hasPendingTask = (project.tasks || []).some((t) => t.status !== 'completed');
-  const hasPendingFollowUp = (project.follow_ups || []).some((f) => f.status !== 'completed');
-  if (hasPendingTask || hasPendingFollowUp) {
-    return 'need_attention';
-  }
+export function normalizeProjectStatus(rawStatus?: string): ProjectStatus {
+  if (rawStatus === 'on_hold') return 'on_hold';
+  if (rawStatus === 'completed') return 'completed';
+  if (rawStatus === 'cancelled') return 'cancelled';
   return 'active';
+}
+
+// Automated Operational / Progress Situation (separated from Project Status)
+export type AutomatedStatus = 'on_track' | 'in_progress' | 'need_attention';
+
+export interface AutomatedStatusResult {
+  status: AutomatedStatus;
+  label: 'On track' | 'Work in Progress' | 'Need attention';
+  sublabel: 'Everything Done' | 'Tasks/Follow-up Pending' | 'Overdue Task/Followup';
+  badgeText: string;
+  color: 'green' | 'orange' | 'red';
+  isOverdue: boolean;
+  overdueTasksCount: number;
+  overdueFollowUpsCount: number;
+  pendingTasksCount: number;
+  pendingFollowUpsCount: number;
+  reasons: string[];
+}
+
+/**
+ * Automatically computes project situation/health based on the operational state:
+ * - On track (Everything Done): No overdue tasks/follow-ups AND all tasks/follow-ups completed (or none pending).
+ * - Work in Progress (Tasks/Follow-up Pending): Has pending tasks or follow-ups, none overdue.
+ * - Need attention (Overdue Task/Followup): Has overdue tasks or overdue follow-ups, or past completion target.
+ */
+export function getAutomatedProjectStatus(project: {
+  status?: string;
+  expected_completion_date?: string;
+  is_overdue?: boolean;
+  tasks?: Array<{ status: string; due_date?: string; title?: string }>;
+  follow_ups?: Array<{ status?: string; follow_up_date?: string; notes?: string }>;
+  next_task?: { status?: string; due_date?: string; title?: string } | null;
+  next_follow_up?: { status?: string; follow_up_date?: string; notes?: string } | null;
+}): AutomatedStatusResult {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const tasks = project.tasks || [];
+  const followUps = project.follow_ups || [];
+
+  // 1. Overdue checks
+  const overdueTasks = tasks.filter(
+    (t) => t.status !== 'completed' && t.due_date && t.due_date < todayStr
+  );
+  if (
+    project.next_task &&
+    project.next_task.status !== 'completed' &&
+    project.next_task.due_date &&
+    project.next_task.due_date < todayStr &&
+    !overdueTasks.some((t) => t.title === project.next_task?.title)
+  ) {
+    overdueTasks.push(project.next_task as any);
+  }
+
+  const overdueFollowUps = followUps.filter(
+    (f) => f.status !== 'completed' && f.follow_up_date && f.follow_up_date < todayStr
+  );
+  if (
+    project.next_follow_up &&
+    project.next_follow_up.status !== 'completed' &&
+    project.next_follow_up.follow_up_date &&
+    project.next_follow_up.follow_up_date < todayStr &&
+    !overdueFollowUps.some((f) => f.follow_up_date === project.next_follow_up?.follow_up_date)
+  ) {
+    overdueFollowUps.push(project.next_follow_up as any);
+  }
+
+  const isProjectPastDate = Boolean(
+    project.expected_completion_date &&
+    project.expected_completion_date < todayStr &&
+    project.status !== 'completed' &&
+    project.status !== 'cancelled'
+  );
+
+  const hasOverdue =
+    overdueTasks.length > 0 ||
+    overdueFollowUps.length > 0 ||
+    isProjectPastDate ||
+    Boolean(project.is_overdue);
+
+  // 2. Pending checks (not overdue)
+  const pendingTasks = tasks.filter((t) => t.status !== 'completed');
+  if (
+    project.next_task &&
+    project.next_task.status !== 'completed' &&
+    !pendingTasks.some((t) => t.title === project.next_task?.title)
+  ) {
+    pendingTasks.push(project.next_task as any);
+  }
+
+  const pendingFollowUps = followUps.filter((f) => f.status !== 'completed');
+  if (
+    project.next_follow_up &&
+    project.next_follow_up.status !== 'completed' &&
+    !pendingFollowUps.some((f) => f.follow_up_date === project.next_follow_up?.follow_up_date)
+  ) {
+    pendingFollowUps.push(project.next_follow_up as any);
+  }
+
+  // Need attention: Overdue items
+  if (hasOverdue) {
+    const reasons: string[] = [];
+    if (overdueTasks.length > 0) {
+      reasons.push(`${overdueTasks.length} task${overdueTasks.length > 1 ? 's' : ''} overdue`);
+    }
+    if (overdueFollowUps.length > 0) {
+      reasons.push(`${overdueFollowUps.length} follow-up${overdueFollowUps.length > 1 ? 's' : ''} overdue`);
+    }
+    if (isProjectPastDate) {
+      reasons.push('Project deadline exceeded');
+    }
+    return {
+      status: 'need_attention',
+      label: 'Need attention',
+      sublabel: 'Overdue Task/Followup',
+      badgeText: 'Need attention (Overdue Task/Followup)',
+      color: 'red',
+      isOverdue: true,
+      overdueTasksCount: overdueTasks.length,
+      overdueFollowUpsCount: overdueFollowUps.length,
+      pendingTasksCount: pendingTasks.length,
+      pendingFollowUpsCount: pendingFollowUps.length,
+      reasons: reasons.length > 0 ? reasons : ['Overdue task or follow-up requires action'],
+    };
+  }
+
+  // Work in Progress: Tasks or follow-up pending, none overdue
+  if (pendingTasks.length > 0 || pendingFollowUps.length > 0) {
+    const activeReasons: string[] = [];
+    if (pendingTasks.length > 0) {
+      activeReasons.push(`${pendingTasks.length} task${pendingTasks.length > 1 ? 's' : ''} pending`);
+    }
+    if (pendingFollowUps.length > 0) {
+      activeReasons.push(`${pendingFollowUps.length} follow-up${pendingFollowUps.length > 1 ? 's' : ''} scheduled`);
+    }
+    return {
+      status: 'in_progress',
+      label: 'Work in Progress',
+      sublabel: 'Tasks/Follow-up Pending',
+      badgeText: 'Work in Progress (Tasks/Follow-up Pending)',
+      color: 'orange',
+      isOverdue: false,
+      overdueTasksCount: 0,
+      overdueFollowUpsCount: 0,
+      pendingTasksCount: pendingTasks.length,
+      pendingFollowUpsCount: pendingFollowUps.length,
+      reasons: activeReasons,
+    };
+  }
+
+  // On track: Everything Done
+  return {
+    status: 'on_track',
+    label: 'On track',
+    sublabel: 'Everything Done',
+    badgeText: 'On track (Everything Done)',
+    color: 'green',
+    isOverdue: false,
+    overdueTasksCount: 0,
+    overdueFollowUpsCount: 0,
+    pendingTasksCount: 0,
+    pendingFollowUpsCount: 0,
+    reasons: ['Everything is done', 'All tasks and follow-ups up to date'],
+  };
+}
+
+/**
+ * Project Status is strictly manually selected by the user.
+ * Returns the normalized manual project status.
+ */
+export function getEffectiveProjectStatus(project: { status: string }): ProjectStatus {
+  return normalizeProjectStatus(project.status);
 }
 
 export type HealthStatus = 'on_track' | 'follow_up_needed' | 'at_risk' | 'overdue' | 'completed';

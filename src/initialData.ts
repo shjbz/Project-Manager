@@ -177,7 +177,7 @@ export const INITIAL_PROJECTS: Project[] = [
     project_lead_id: 'tm-3',
     team_member_ids: ['tm-3', 'tm-2'],
     priority: 'low',
-    status: 'follow_up_pending',
+    status: 'active',
     start_date: '2026-08-10',
     expected_completion_date: '2026-12-15',
     created_at: '2026-08-10T08:00:00.000Z',

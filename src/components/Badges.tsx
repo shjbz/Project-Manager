@@ -1,5 +1,7 @@
 import React from 'react';
-import type { Priority, ProjectStatus, HealthStatus } from '../types';
+import { CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import type { Priority, ProjectStatus, HealthStatus, AutomatedStatusResult } from '../types';
+import { getAutomatedProjectStatus, normalizeProjectStatus } from '../types';
 
 export const PriorityBadge: React.FC<{ priority: Priority; size?: 'sm' | 'md' }> = ({
   priority,
@@ -57,7 +59,10 @@ export const PriorityBadge: React.FC<{ priority: Priority; size?: 'sm' | 'md' }>
   }
 };
 
-export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }> = ({
+/**
+ * Manually selected Project Status badge (Active, On Hold, Completed, Cancelled).
+ */
+export const StatusBadge: React.FC<{ status: ProjectStatus | string; size?: 'sm' | 'md' }> = ({
   status,
   size = 'md',
 }) => {
@@ -66,43 +71,24 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
     ? 'inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded'
     : 'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md';
 
-  switch (status) {
+  const normalized = normalizeProjectStatus(status);
+
+  switch (normalized) {
     case 'active':
       return (
         <span
-          id={`status-badge-${status}`}
-          className={`${baseClass} bg-emerald-50 text-emerald-800 border border-emerald-200`}
+          id={`status-badge-${normalized}`}
+          className={`${baseClass} bg-zinc-900 text-white font-medium`}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           Active
-        </span>
-      );
-    case 'need_attention':
-    case 'follow_up_pending':
-      return (
-        <span
-          id={`status-badge-${status}`}
-          className={`${baseClass} bg-amber-50 text-amber-800 border border-amber-200`}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-          Need Attention
-        </span>
-      );
-    case 'at_risk':
-      return (
-        <span
-          id={`status-badge-${status}`}
-          className={`${baseClass} bg-orange-50 text-orange-800 border border-orange-200`}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-orange-600" />
-          At Risk
         </span>
       );
     case 'on_hold':
       return (
         <span
-          id={`status-badge-${status}`}
-          className={`${baseClass} bg-zinc-100 text-zinc-600 border border-zinc-200`}
+          id={`status-badge-${normalized}`}
+          className={`${baseClass} bg-zinc-100 text-zinc-700 border border-zinc-200`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
           On Hold
@@ -111,7 +97,7 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
     case 'completed':
       return (
         <span
-          id={`status-badge-${status}`}
+          id={`status-badge-${normalized}`}
           className={`${baseClass} bg-blue-50 text-blue-800 border border-blue-200`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
@@ -121,7 +107,7 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
     case 'cancelled':
       return (
         <span
-          id={`status-badge-${status}`}
+          id={`status-badge-${normalized}`}
           className={`${baseClass} bg-zinc-100 text-zinc-500 border border-zinc-200 line-through`}
         >
           Cancelled
@@ -130,6 +116,100 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
     default:
       return null;
   }
+};
+
+/**
+ * Minimal but catchy Automated Situation / Health Badge:
+ * - Green: On track (Everything Done)
+ * - Orange: Work in Progress (Tasks/Follow-up Pending)
+ * - Red: Need attention (Overdue Task/Followup)
+ */
+export const AutomatedStatusBadge: React.FC<{
+  project: {
+    status?: string;
+    expected_completion_date?: string;
+    is_overdue?: boolean;
+    tasks?: Array<{ status: string; due_date?: string; title?: string }>;
+    follow_ups?: Array<{ status?: string; follow_up_date?: string; notes?: string }>;
+    next_task?: { status?: string; due_date?: string; title?: string } | null;
+    next_follow_up?: { status?: string; follow_up_date?: string; notes?: string } | null;
+  };
+  size?: 'xs' | 'sm' | 'md';
+  showSublabel?: boolean;
+  className?: string;
+}> = ({ project, size = 'sm', showSublabel = true, className = '' }) => {
+  const auto = getAutomatedProjectStatus(project);
+
+  if (auto.status === 'on_track') {
+    return (
+      <span
+        id={`auto-situation-badge-${auto.status}`}
+        title={`On track: ${auto.reasons.join(', ')}`}
+        className={`inline-flex items-center gap-1.5 rounded-md border font-medium transition shadow-2xs ${
+          size === 'xs'
+            ? 'px-1.5 py-0.5 text-[10px]'
+            : size === 'sm'
+            ? 'px-2 py-0.5 text-xs'
+            : 'px-2.5 py-1 text-xs'
+        } bg-emerald-50 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/70 ${className}`}
+      >
+        <CheckCircle2 className={`${size === 'xs' ? 'w-3 h-3' : 'w-3.5 h-3.5'} text-emerald-600 shrink-0`} />
+        <span className="font-semibold text-emerald-900">On track</span>
+        {showSublabel && (
+          <span className="text-emerald-700/80 text-[11px] font-normal">
+            (Everything Done)
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  if (auto.status === 'in_progress') {
+    return (
+      <span
+        id={`auto-situation-badge-${auto.status}`}
+        title={`Work in Progress: ${auto.reasons.join(', ')}`}
+        className={`inline-flex items-center gap-1.5 rounded-md border font-medium transition shadow-2xs ${
+          size === 'xs'
+            ? 'px-1.5 py-0.5 text-[10px]'
+            : size === 'sm'
+            ? 'px-2 py-0.5 text-xs'
+            : 'px-2.5 py-1 text-xs'
+        } bg-amber-50 text-amber-900 border-amber-200/90 hover:bg-amber-100/70 ${className}`}
+      >
+        <Clock className={`${size === 'xs' ? 'w-3 h-3' : 'w-3.5 h-3.5'} text-amber-600 shrink-0`} />
+        <span className="font-semibold text-amber-950">Work in Progress</span>
+        {showSublabel && (
+          <span className="text-amber-800/80 text-[11px] font-normal">
+            (Tasks/Follow-up Pending)
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  // Need attention: Overdue items
+  return (
+    <span
+      id={`auto-situation-badge-${auto.status}`}
+      title={`Need attention: ${auto.reasons.join(', ')}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border font-medium transition shadow-2xs ${
+        size === 'xs'
+          ? 'px-1.5 py-0.5 text-[10px]'
+          : size === 'sm'
+          ? 'px-2 py-0.5 text-xs'
+          : 'px-2.5 py-1 text-xs'
+      } bg-rose-50 text-rose-900 border-rose-200/90 hover:bg-rose-100/70 ${className}`}
+    >
+      <AlertTriangle className={`${size === 'xs' ? 'w-3 h-3' : 'w-3.5 h-3.5'} text-rose-600 shrink-0 animate-pulse`} />
+      <span className="font-semibold text-rose-950">Need attention</span>
+      {showSublabel && (
+        <span className="text-rose-700/80 text-[11px] font-normal">
+          (Overdue Task/Followup)
+        </span>
+      )}
+    </span>
+  );
 };
 
 export const HealthBadge: React.FC<{ health: HealthStatus }> = ({ health }) => {

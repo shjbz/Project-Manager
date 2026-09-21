@@ -19,7 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, DashboardStats, Priority, ProjectStatus } from '../types';
-import { getEffectiveProjectStatus } from '../types';
+import { getAutomatedProjectStatus, normalizeProjectStatus } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface DashboardViewProps {
@@ -54,6 +54,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [situationFilter, setSituationFilter] = useState<string>('all');
   const [leadFilter, setLeadFilter] = useState<string>('all');
   const [dueDateFilter, setDueDateFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
@@ -126,25 +127,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           if (p.priority !== 'low') return false;
         }
       }
+      // Manual Project Status filter
       if (statusFilter !== 'all') {
-        const effective = getEffectiveProjectStatus(p);
-        if (statusFilter === 'need_attention' || statusFilter === 'follow_up_pending') {
-          if (effective !== 'need_attention' && p.status !== 'need_attention' && p.status !== 'follow_up_pending') {
-            return false;
-          }
-        } else if (statusFilter === 'active') {
-          if (effective !== 'active' && p.status !== 'active') return false;
-        } else if (statusFilter === 'at_risk') {
-          if (p.status !== 'at_risk' && p.health_status !== 'at_risk') return false;
-        } else if (statusFilter === 'on_hold') {
-          if (p.status !== 'on_hold') return false;
-        } else if (statusFilter === 'completed') {
-          if (p.status !== 'completed') return false;
-        } else if (statusFilter === 'cancelled') {
-          if (p.status !== 'cancelled') return false;
-        } else if (p.status !== statusFilter) {
-          return false;
-        }
+        const norm = normalizeProjectStatus(p.status);
+        if (norm !== statusFilter) return false;
+      }
+      // Automated Operational Situation filter (On track / Work in Progress / Need attention)
+      if (situationFilter !== 'all') {
+        const auto = getAutomatedProjectStatus(p);
+        if (auto.status !== situationFilter) return false;
       }
       if (leadFilter !== 'all' && p.project_lead_id !== leadFilter && !p.team_member_ids?.includes(leadFilter)) {
         return false;
@@ -186,83 +177,68 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
 
   const activeProjectsCount = projects.filter(
-    (p) => !p.is_archived && p.status !== 'completed' && p.status !== 'cancelled' && getEffectiveProjectStatus(p) === 'active'
+    (p) => !p.is_archived && normalizeProjectStatus(p.status) === 'active'
+  ).length;
+
+  const onTrackCount = projects.filter(
+    (p) => !p.is_archived && getAutomatedProjectStatus(p).status === 'on_track'
+  ).length;
+
+  const inProgressCount = projects.filter(
+    (p) => !p.is_archived && getAutomatedProjectStatus(p).status === 'in_progress'
   ).length;
 
   const needAttentionCount = projects.filter(
-    (p) => !p.is_archived && p.status !== 'completed' && p.status !== 'cancelled' && getEffectiveProjectStatus(p) === 'need_attention'
+    (p) => !p.is_archived && getAutomatedProjectStatus(p).status === 'need_attention'
   ).length;
 
   const dueThisWeekCount = projects.filter((p) => !p.is_archived && isProjectDueThisWeek(p)).length;
 
   const overdueCount = projects.filter((p) => !p.is_archived && isProjectOverdue(p)).length;
 
-  const atRiskCount = projects.filter(
-    (p) => !p.is_archived && (p.status === 'at_risk' || p.health_status === 'at_risk')
-  ).length;
+  const completedCount = projects.filter((p) => !p.is_archived && normalizeProjectStatus(p.status) === 'completed').length;
 
-  // Number of urgent tasks pending across all projects
-  const urgentTasksCount = projects.reduce((total, p) => {
-    if (p.is_archived) return total;
-    const count = (p.tasks || []).filter(
-      (t) => (t.priority === 'urgent' || t.priority === 'high') && t.status !== 'completed'
-    ).length;
-    return total + count;
-  }, 0);
-
-  const completedCount = projects.filter((p) => !p.is_archived && p.status === 'completed').length;
+  type MetricCardId = 'active' | 'on_track' | 'in_progress' | 'need_attention' | 'due_this_week' | 'overdue' | 'completed';
 
   // Active card quick filter helper
-  const isCardActive = (
-    cardId: 'active' | 'need_attention' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
-  ) => {
+  const isCardActive = (cardId: MetricCardId) => {
     if (cardId === 'active') return statusFilter === 'active';
-    if (cardId === 'need_attention') return statusFilter === 'need_attention';
+    if (cardId === 'on_track') return situationFilter === 'on_track';
+    if (cardId === 'in_progress') return situationFilter === 'in_progress';
+    if (cardId === 'need_attention') return situationFilter === 'need_attention';
     if (cardId === 'due_this_week') return dueDateFilter === 'this_week';
     if (cardId === 'overdue') return dueDateFilter === 'overdue';
-    if (cardId === 'at_risk') return statusFilter === 'at_risk';
-    if (cardId === 'urgent') return priorityFilter === 'high';
     if (cardId === 'completed') return statusFilter === 'completed';
     return false;
   };
 
-  const handleCardClick = (
-    cardId: 'active' | 'need_attention' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
-  ) => {
+  const handleCardClick = (cardId: MetricCardId) => {
     if (isCardActive(cardId)) {
       // Toggle off / Reset to all
       setStatusFilter('all');
+      setSituationFilter('all');
       setDueDateFilter('all');
       setPriorityFilter('all');
     } else {
+      setStatusFilter('all');
+      setSituationFilter('all');
+      setDueDateFilter('all');
+      setPriorityFilter('all');
+
       if (cardId === 'active') {
         setStatusFilter('active');
-        setDueDateFilter('all');
-        setPriorityFilter('all');
+      } else if (cardId === 'on_track') {
+        setSituationFilter('on_track');
+      } else if (cardId === 'in_progress') {
+        setSituationFilter('in_progress');
       } else if (cardId === 'need_attention') {
-        setStatusFilter('need_attention');
-        setDueDateFilter('all');
-        setPriorityFilter('all');
+        setSituationFilter('need_attention');
       } else if (cardId === 'due_this_week') {
         setDueDateFilter('this_week');
-        setStatusFilter('all');
-        setPriorityFilter('all');
       } else if (cardId === 'overdue') {
         setDueDateFilter('overdue');
-        setStatusFilter('all');
-        setPriorityFilter('all');
-      } else if (cardId === 'at_risk') {
-        setStatusFilter('at_risk');
-        setDueDateFilter('all');
-        setPriorityFilter('all');
-      } else if (cardId === 'urgent') {
-        setPriorityFilter('high');
-        setStatusFilter('all');
-        setDueDateFilter('all');
       } else if (cardId === 'completed') {
         setStatusFilter('completed');
-        setDueDateFilter('all');
-        setPriorityFilter('all');
       }
     }
 
@@ -275,17 +251,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const metricCards = [
     {
       id: 'active' as const,
-      label: 'Active',
+      label: 'Active Projects',
       count: activeProjectsCount,
-      icon: <FolderKanban className="w-4 h-4 text-emerald-600" />,
+      icon: <FolderKanban className="w-4 h-4 text-zinc-700" />,
+      dotColor: 'bg-zinc-800',
+      subtitle: 'Manual Status',
+    },
+    {
+      id: 'on_track' as const,
+      label: 'On track',
+      count: onTrackCount,
+      icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,
       dotColor: 'bg-emerald-500',
+      subtitle: 'Everything Done',
+    },
+    {
+      id: 'in_progress' as const,
+      label: 'Work in Progress',
+      count: inProgressCount,
+      icon: <Clock className="w-4 h-4 text-amber-600" />,
+      dotColor: 'bg-amber-500',
+      subtitle: 'Pending Items',
     },
     {
       id: 'need_attention' as const,
-      label: 'Need Attention',
+      label: 'Need attention',
       count: needAttentionCount,
-      icon: <CalendarCheck className="w-4 h-4 text-amber-500" />,
-      dotColor: 'bg-amber-500',
+      icon: <AlertTriangle className="w-4 h-4 text-rose-600" />,
+      dotColor: 'bg-rose-500',
+      urgentAlert: needAttentionCount > 0,
+      subtitle: 'Overdue Items',
     },
     {
       id: 'due_this_week' as const,
@@ -293,35 +288,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       count: dueThisWeekCount,
       icon: <Clock className="w-4 h-4 text-sky-500" />,
       dotColor: 'bg-sky-500',
+      subtitle: 'This Week',
     },
     {
       id: 'overdue' as const,
       label: 'Overdue',
       count: overdueCount,
-      icon: <AlertTriangle className="w-4 h-4 text-rose-500" />,
+      icon: <AlertCircle className="w-4 h-4 text-rose-500" />,
       dotColor: 'bg-rose-500',
       urgentAlert: overdueCount > 0,
-    },
-    {
-      id: 'at_risk' as const,
-      label: 'At Risk',
-      count: atRiskCount,
-      icon: <AlertCircle className="w-4 h-4 text-orange-500" />,
-      dotColor: 'bg-orange-500',
-    },
-    {
-      id: 'urgent' as const,
-      label: 'Urgent Tasks',
-      count: urgentTasksCount,
-      icon: <Flame className="w-4 h-4 text-rose-500" />,
-      dotColor: 'bg-rose-500',
+      subtitle: 'Needs Action',
     },
     {
       id: 'completed' as const,
       label: 'Completed',
       count: completedCount,
-      icon: <CheckCircle className="w-4 h-4 text-zinc-500" />,
+      icon: <CheckCircle className="w-4 h-4 text-zinc-400" />,
       dotColor: 'bg-zinc-400',
+      subtitle: 'Archived / Done',
     },
   ];
 
@@ -368,10 +352,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <Filter className="w-3.5 h-3.5 text-zinc-400" />
             <span>Interactive Operational Pulse · Click any card to filter projects below</span>
           </div>
-          {(statusFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all') && (
+          {(statusFilter !== 'all' || situationFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all') && (
             <button
               onClick={() => {
                 setStatusFilter('all');
+                setSituationFilter('all');
                 setDueDateFilter('all');
                 setPriorityFilter('all');
               }}
@@ -428,11 +413,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   >
                     {card.count}
                   </div>
-                  {active && (
-                    <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-white/20 text-white tracking-wider">
+                  {active ? (
+                    <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-white/20 text-white tracking-wider">
                       Filtered
                     </span>
-                  )}
+                  ) : card.subtitle ? (
+                    <span className="text-[10px] text-zinc-400 font-medium truncate">
+                      {card.subtitle}
+                    </span>
+                  ) : null}
                 </div>
               </button>
             );
@@ -513,28 +502,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Active Filter Indicator Banner */}
-        {(statusFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all' || leadFilter !== 'all') && (
+        {(statusFilter !== 'all' || situationFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all' || leadFilter !== 'all') && (
           <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900 text-white px-4 py-2.5 rounded-xl text-xs shadow-sm">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
               <span className="font-semibold">
                 Filter applied:{' '}
                 <span className="text-zinc-300 font-normal">
-                  {statusFilter === 'active' && 'Active Projects'}
-                  {statusFilter === 'follow_up_pending' && 'Projects Needing Follow-up'}
-                  {dueDateFilter === 'this_week' && 'Projects Due This Week'}
-                  {dueDateFilter === 'overdue' && 'Overdue Projects'}
-                  {statusFilter === 'at_risk' && 'At Risk Projects'}
-                  {priorityFilter === 'urgent' && 'Urgent Priority Projects'}
-                  {statusFilter === 'completed' && 'Completed Projects'}
-                  {leadFilter !== 'all' && `Team Member: ${team.find((m) => m.id === leadFilter)?.name || leadFilter}`}
-                  {statusFilter !== 'all' &&
-                    !['active', 'follow_up_pending', 'at_risk', 'completed'].includes(statusFilter) &&
-                    `Status: ${statusFilter}`}
-                  {priorityFilter !== 'all' && priorityFilter !== 'urgent' && `Priority: ${priorityFilter}`}
-                  {dueDateFilter !== 'all' &&
-                    !['this_week', 'overdue'].includes(dueDateFilter) &&
-                    `Timeline: ${dueDateFilter}`}
+                  {statusFilter === 'active' && 'Active Projects · '}
+                  {statusFilter === 'on_hold' && 'On Hold Projects · '}
+                  {statusFilter === 'completed' && 'Completed Projects · '}
+                  {statusFilter === 'cancelled' && 'Cancelled Projects · '}
+                  {situationFilter === 'on_track' && 'Situation: On track · '}
+                  {situationFilter === 'in_progress' && 'Situation: Work in Progress · '}
+                  {situationFilter === 'need_attention' && 'Situation: Need attention · '}
+                  {dueDateFilter === 'this_week' && 'Due This Week · '}
+                  {dueDateFilter === 'overdue' && 'Overdue Deadlines · '}
+                  {priorityFilter !== 'all' && `Priority: ${priorityFilter} · `}
+                  {leadFilter !== 'all' && `Lead: ${team.find((m) => m.id === leadFilter)?.name || leadFilter}`}
                 </span>
               </span>
               <span className="text-zinc-400 text-[11px]">
@@ -544,6 +529,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               onClick={() => {
                 setStatusFilter('all');
+                setSituationFilter('all');
                 setDueDateFilter('all');
                 setPriorityFilter('all');
                 setLeadFilter('all');
@@ -587,7 +573,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </select>
           </div>
 
-          {/* Status filter */}
+          {/* Status filter (Manual) */}
           <div className="flex items-center gap-1.5">
             <span className="text-zinc-400 font-semibold text-[11px] uppercase">Status:</span>
             <select
@@ -598,11 +584,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
-              <option value="need_attention">Need Attention</option>
-              <option value="at_risk">At Risk</option>
               <option value="on_hold">On Hold</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          {/* Situation filter (Automated) */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Situation:</span>
+            <select
+              id="filter-situation-select"
+              value={situationFilter}
+              onChange={(e) => setSituationFilter(e.target.value)}
+              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+            >
+              <option value="all">All Situations</option>
+              <option value="on_track">🟢 On track (Done)</option>
+              <option value="in_progress">🟠 Work in Progress</option>
+              <option value="need_attention">🔴 Need attention</option>
             </select>
           </div>
 
@@ -657,12 +657,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Reset button if filtered */}
-          {(searchQuery || priorityFilter !== 'all' || statusFilter !== 'all' || leadFilter !== 'all' || dueDateFilter !== 'all') && (
+          {(searchQuery || priorityFilter !== 'all' || statusFilter !== 'all' || situationFilter !== 'all' || leadFilter !== 'all' || dueDateFilter !== 'all') && (
             <button
               onClick={() => {
                 setSearchQuery('');
                 setPriorityFilter('all');
                 setStatusFilter('all');
+                setSituationFilter('all');
                 setLeadFilter('all');
                 setDueDateFilter('all');
               }}
@@ -682,6 +683,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 setSearchQuery('');
                 setPriorityFilter('all');
                 setStatusFilter('all');
+                setSituationFilter('all');
                 setLeadFilter('all');
                 setDueDateFilter('all');
               }}
@@ -711,6 +713,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-3 px-4">Project Lead</th>
                     <th className="py-3 px-4">Priority</th>
                     <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Situation</th>
                     <th className="py-3 px-4">Last Follow-up</th>
                     <th className="py-3 px-4">Next Task</th>
                     <th className="py-3 px-4">Due</th>

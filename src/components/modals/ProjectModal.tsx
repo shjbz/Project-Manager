@@ -523,14 +523,12 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
                 >
                   <option value="active">Active</option>
-                  <option value="need_attention">Need Attention</option>
-                  <option value="at_risk">At Risk</option>
                   <option value="on_hold">On Hold</option>
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
                 <p className="text-[11px] text-zinc-500 mt-1">
-                  Default is Active. When tasks or follow-ups are pending, status automatically reflects Need Attention.
+                  Project Status is always manually selected. Operational situation (On track / Work in Progress / Need attention) is automatically evaluated based on tasks and follow-ups.
                 </p>
               </div>
             </div>

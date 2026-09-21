@@ -208,7 +208,7 @@ function getInitialDatabase(): DatabaseSchema {
       project_lead_id: 'tm-3',
       team_member_ids: ['tm-3', 'tm-2'],
       priority: 'low',
-      status: 'follow_up_pending',
+      status: 'active',
       start_date: '2026-08-10',
       expected_completion_date: '2026-12-15',
       created_at: '2026-08-10T08:00:00.000Z',
@@ -240,7 +240,7 @@ function getInitialDatabase(): DatabaseSchema {
       project_lead_id: 'tm-5',
       team_member_ids: ['tm-5', 'tm-1'],
       priority: 'urgent',
-      status: 'at_risk',
+      status: 'active',
       start_date: '2026-07-01',
       expected_completion_date: '2026-11-15',
       created_at: '2026-07-01T08:00:00.000Z',
@@ -845,9 +845,13 @@ export class Database {
       const assigned = this.data.projects.filter(
         (p) => p.project_lead_id === m.id || (p.team_member_ids && p.team_member_ids.includes(m.id))
       );
-      const active = assigned.filter((p) => p.status === 'active' || p.status === 'at_risk');
+      const active = assigned.filter((p) => p.status === 'active');
       const urgent = assigned.filter((p) => p.priority === 'urgent' && p.status !== 'completed' && p.status !== 'cancelled');
-      const followUp = assigned.filter((p) => p.status === 'follow_up_pending');
+      const followUp = assigned.filter((p) => {
+        if (p.status === 'completed' || p.status === 'cancelled') return false;
+        const projectFollowUps = this.data.follow_ups.filter((f) => f.project_id === p.id && f.status !== 'completed');
+        return projectFollowUps.length > 0;
+      });
 
       const overdueProjects = assigned.filter((p) => {
         if (p.status === 'completed' || p.status === 'cancelled') return false;
@@ -1001,9 +1005,7 @@ export class Database {
         health_status = 'completed';
       } else if (is_overdue) {
         health_status = 'overdue';
-      } else if (p.status === 'at_risk') {
-        health_status = 'at_risk';
-      } else if (p.status === 'follow_up_pending' || (next_follow_up && next_follow_up.follow_up_date <= todayStr)) {
+      } else if (next_follow_up && next_follow_up.follow_up_date <= todayStr) {
         health_status = 'follow_up_needed';
       }
 
@@ -1448,7 +1450,7 @@ export class Database {
 
     const active = allProjects.filter((p) => p.status === 'active');
     const urgent = allProjects.filter((p) => p.priority === 'urgent' && p.status !== 'completed' && p.status !== 'cancelled');
-    const followUpPending = allProjects.filter((p) => p.status === 'follow_up_pending' || (p.next_follow_up && p.next_follow_up.follow_up_date <= todayStr));
+    const followUpPending = allProjects.filter((p) => p.next_follow_up && p.next_follow_up.follow_up_date <= todayStr);
     const overdueProjects = allProjects.filter((p) => p.is_overdue);
 
     // Due soon: next task due between today and next 5 days

@@ -1,8 +1,7 @@
 import React from 'react';
 import { Calendar, User, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Project } from '../types';
-import { getEffectiveProjectStatus } from '../types';
-import { PriorityBadge, StatusBadge, HealthBadge } from './Badges';
+import { PriorityBadge, StatusBadge, AutomatedStatusBadge } from './Badges';
 
 interface ProjectCardProps {
   project: Project;
@@ -11,7 +10,6 @@ interface ProjectCardProps {
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
   const isOverdue = project.is_overdue;
-  const effectiveStatus = getEffectiveProjectStatus(project);
 
   return (
     <div
@@ -22,18 +20,23 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
       }`}
     >
       <div>
-        {/* Top Badges */}
+        {/* Top Badges: Priority (Left) & Manually Selected Project Status (Right) */}
         <div className="flex items-center justify-between gap-2 mb-3">
           <PriorityBadge priority={project.priority} size="sm" />
-          <StatusBadge status={effectiveStatus} size="sm" />
+          <StatusBadge status={project.status} size="sm" />
         </div>
 
         {/* Title & Type */}
-        <div className="mb-4">
+        <div className="mb-2.5">
           <h3 className="text-base font-bold text-zinc-900 group-hover:text-zinc-950 tracking-tight leading-snug">
             {project.project_name}
           </h3>
           <p className="text-xs text-zinc-500 font-medium mt-0.5">{project.project_type}</p>
+        </div>
+
+        {/* Automated Operational Situation (Green/Orange/Red Minimal Catchy Badge) */}
+        <div className="mb-3">
+          <AutomatedStatusBadge project={project} size="sm" showSublabel={true} />
         </div>
 
         {/* Client & Lead info */}
@@ -105,7 +108,6 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
               : project.project_lead?.name || '—'}
           </span>
         </div>
-        {project.health_status && <HealthBadge health={project.health_status} />}
       </div>
     </div>
   );
@@ -149,9 +151,14 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
         <PriorityBadge priority={project.priority} size="sm" />
       </td>
 
-      {/* Status */}
+      {/* Project Status (Manually selected) */}
       <td className="py-3 px-4">
-        <StatusBadge status={getEffectiveProjectStatus(project)} size="sm" />
+        <StatusBadge status={project.status} size="sm" />
+      </td>
+
+      {/* Situation (Automated Green/Orange/Red) */}
+      <td className="py-3 px-4">
+        <AutomatedStatusBadge project={project} size="sm" showSublabel={true} />
       </td>
 
       {/* Last Follow-up */}
