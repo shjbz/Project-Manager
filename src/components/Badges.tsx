@@ -21,7 +21,18 @@ export const PriorityBadge: React.FC<{ priority: Priority; size?: 'sm' | 'md' }>
           Urgent
         </span>
       );
+    case 'high':
+      return (
+        <span
+          id={`priority-badge-${priority}`}
+          className={`${baseClass} bg-rose-50 text-rose-700 border border-rose-200/70`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+          High
+        </span>
+      );
     case 'standard':
+    case 'medium':
       return (
         <span
           id={`priority-badge-${priority}`}
@@ -66,6 +77,7 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
           Active
         </span>
       );
+    case 'need_attention':
     case 'follow_up_pending':
       return (
         <span
@@ -73,7 +85,7 @@ export const StatusBadge: React.FC<{ status: ProjectStatus; size?: 'sm' | 'md' }
           className={`${baseClass} bg-amber-50 text-amber-800 border border-amber-200`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
-          Follow-up Pending
+          Need Attention
         </span>
       );
     case 'at_risk':

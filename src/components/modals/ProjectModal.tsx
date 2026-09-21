@@ -40,8 +40,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [clientId, setClientId] = useState('');
-  const [projectLeadId, setProjectLeadId] = useState('');
-  const [teamMemberIds, setTeamMemberIds] = useState<string[]>([]);
+  const [projectLeadId, setProjectLeadId] = useState(team[0]?.id || '');
+  const [teamMemberIds, setTeamMemberIds] = useState<string[]>(team[0]?.id ? [team[0]?.id] : []);
   const [priority, setPriority] = useState<Priority>('standard');
   const [status, setStatus] = useState<ProjectStatus>('active');
   const [startDate, setStartDate] = useState('2026-09-15');
@@ -50,7 +50,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   // Initial task & followup for new projects
   const [initialTaskTitle, setInitialTaskTitle] = useState('');
   const [initialTaskDue, setInitialTaskDue] = useState('2026-09-20');
-  const [initialTaskAssignee, setInitialTaskAssignee] = useState('');
+  const [initialTaskAssignee, setInitialTaskAssignee] = useState(team[0]?.id || '');
   const [initialFollowUpNotes, setInitialFollowUpNotes] = useState('');
   const [initialFollowUpDate, setInitialFollowUpDate] = useState('2026-09-18');
   const [initialFollowUpMethod, setInitialFollowUpMethod] = useState<'Phone' | 'In-Person' | 'WhatsApp' | 'Email'>('Phone');
@@ -64,47 +64,59 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [localClients, setLocalClients] = useState<Client[]>(clients);
 
   useEffect(() => {
-    setLocalClients(clients);
+    setLocalClients((prev) => {
+      // Merge with latest clients from props while retaining any newly created ones
+      const existingIds = new Set(prev.map((c) => c.id));
+      const newlyAdded = clients.filter((c) => !existingIds.has(c.id));
+      return [...newlyAdded, ...prev];
+    });
   }, [clients]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync state with selected project or start fresh
+  const prevOpenRef = React.useRef(false);
+  const prevInitialDataIdRef = React.useRef<string | null | undefined>(undefined);
+
+  // Sync state with selected project or start fresh ONLY when opening or switching project
   useEffect(() => {
-    if (isOpen) {
+    const wasJustOpened = isOpen && !prevOpenRef.current;
+    const initialDataChanged = Boolean(initialData && initialData.id !== prevInitialDataIdRef.current);
+
+    if (wasJustOpened || initialDataChanged) {
       if (initialData) {
         setProjectName(initialData.project_name || '');
         setProjectType(initialData.project_type || 'Architecture');
         setLocation(initialData.location || '');
         setDescription(initialData.description || '');
-        setClientId(initialData.client_id || (clients[0]?.id || ''));
-        setProjectLeadId(initialData.project_lead_id || (team[0]?.id || ''));
+        setClientId(initialData.client_id || '');
+        setProjectLeadId(initialData.project_lead_id || team[0]?.id || '');
         setTeamMemberIds(
           initialData.team_member_ids && initialData.team_member_ids.length > 0
             ? initialData.team_member_ids
-            : (team[0] ? [team[0].id] : [])
+            : (initialData.project_lead_id ? [initialData.project_lead_id] : (team[0]?.id ? [team[0]?.id] : []))
         );
         setPriority(initialData.priority || 'standard');
         setStatus(initialData.status || 'active');
-        setStartDate(initialData.start_date || '2026-09-15');
-        setExpectedDate(initialData.expected_completion_date || '2026-12-31');
+        setStartDate(initialData.start_date || '');
+        setExpectedDate(initialData.expected_completion_date || '');
         setInitialTaskTitle('');
       } else {
+        const defaultLead = team[0]?.id || '';
         setProjectName('');
         setProjectType('Architecture');
         setLocation('');
         setDescription('');
-        setClientId(clients[0]?.id || '');
-        setProjectLeadId(team[0]?.id || '');
-        setTeamMemberIds(team[0] ? [team[0].id] : []);
+        setClientId('');
+        setProjectLeadId(defaultLead);
+        setTeamMemberIds(defaultLead ? [defaultLead] : []);
         setPriority('standard');
         setStatus('active');
         setStartDate('2026-09-15');
         setExpectedDate('2026-12-31');
         setInitialTaskTitle('');
         setInitialTaskDue('2026-09-20');
-        setInitialTaskAssignee('');
+        setInitialTaskAssignee(defaultLead);
         setInitialFollowUpNotes('');
         setInitialFollowUpDate('2026-09-18');
         setInitialFollowUpMethod('Phone');
@@ -116,7 +128,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       setError(null);
       setSaving(false);
     }
-  }, [isOpen, initialData, clients, team]);
+    prevOpenRef.current = isOpen;
+    prevInitialDataIdRef.current = initialData?.id;
+  }, [isOpen, initialData, team]);
 
   if (!isOpen) return null;
 
@@ -130,8 +144,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   };
 
   const handleQuickAddClient = async () => {
-    if (!newClientName.trim() || !newClientPhone.trim()) {
-      setError('Client Name and Phone are required');
+    if (!newClientName.trim()) {
+      setError('Client Name is required');
       return;
     }
     setQuickAdding(true);
@@ -140,7 +154,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
       const payload: Partial<Client> = {
         name: newClientName.trim(),
         company: newClientCompany.trim() || undefined,
-        phone: newClientPhone.trim(),
+        phone: newClientPhone.trim() || undefined,
         status: 'active',
       };
       let created: Client;
@@ -342,61 +356,83 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                 <select
                   id="modal-project-client"
                   value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
+                  onChange={(e) => {
+                    if (e.target.value === '__new__') {
+                      setShowNewClientForm(true);
+                    } else {
+                      setClientId(e.target.value);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
                 >
-                  <option value="" disabled>
-                    -- Select Existing Client --
+                  <option value="">Select Existing Client</option>
+                  <option value="__new__" className="font-semibold text-zinc-900 bg-zinc-100">
+                    + Add New Client (Create Inline)...
                   </option>
                   {localClients.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} {c.company ? `(${c.company})` : ''} — {c.phone}
+                      {c.name} {c.company ? `(${c.company})` : ''} {c.phone ? `— ${c.phone}` : ''}
                     </option>
                   ))}
                 </select>
               </div>
             ) : (
               <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-lg space-y-3">
-                <div className="font-semibold text-zinc-800">Quick Add Client</div>
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-zinc-800">Quick Add Client</div>
+                  <span className="text-[10px] text-zinc-500">
+                    All other project inputs above are preserved safely
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     type="text"
                     placeholder="Client Name *"
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
-                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white"
+                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white text-xs"
+                    autoFocus
                   />
                   <input
                     type="text"
-                    placeholder="Company"
+                    placeholder="Company (Optional)"
                     value={newClientCompany}
                     onChange={(e) => setNewClientCompany(e.target.value)}
-                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white"
+                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white text-xs"
                   />
                   <input
                     type="text"
-                    placeholder="Phone *"
+                    placeholder="Phone (Optional - can add later)"
                     value={newClientPhone}
                     onChange={(e) => setNewClientPhone(e.target.value)}
-                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white"
+                    className="px-2.5 py-1.5 border border-zinc-300 rounded bg-white text-xs"
                   />
                 </div>
-                <button
-                  type="button"
-                  id="btn-save-select-client"
-                  onClick={handleQuickAddClient}
-                  disabled={quickAdding}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs font-medium cursor-pointer transition"
-                >
-                  {quickAdding ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving Client...</span>
-                    </>
-                  ) : (
-                    <span>Save & Select Client</span>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    id="btn-save-select-client"
+                    onClick={handleQuickAddClient}
+                    disabled={quickAdding}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs font-medium cursor-pointer transition"
+                  >
+                    {quickAdding ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving Client...</span>
+                      </>
+                    ) : (
+                      <span>Save & Select Client</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewClientForm(false)}
+                    className="px-2.5 py-1.5 text-zinc-600 hover:text-zinc-900 text-xs font-medium transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -416,12 +452,13 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                 value={projectLeadId}
                 onChange={(e) => {
                   setProjectLeadId(e.target.value);
-                  if (!teamMemberIds.includes(e.target.value)) {
+                  if (e.target.value && !teamMemberIds.includes(e.target.value)) {
                     setTeamMemberIds([...teamMemberIds, e.target.value]);
                   }
                 }}
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
               >
+                <option value="">Select Project Lead</option>
                 {team.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name} — {m.designation}
@@ -442,8 +479,8 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   >
                     <input
                       type="checkbox"
-                      checked={teamMemberIds.includes(m.id) || m.id === projectLeadId}
-                      disabled={m.id === projectLeadId}
+                      checked={teamMemberIds.includes(m.id) || (Boolean(projectLeadId) && m.id === projectLeadId)}
+                      disabled={Boolean(projectLeadId) && m.id === projectLeadId}
                       onChange={() => handleToggleMember(m.id)}
                       className="rounded text-zinc-900 focus:ring-zinc-900"
                     />
@@ -471,9 +508,9 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   onChange={(e) => setPriority(e.target.value as Priority)}
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
                 >
-                  <option value="urgent">Urgent (Immediate attention)</option>
-                  <option value="standard">Standard (Normal)</option>
-                  <option value="low">Low (Lower priority)</option>
+                  <option value="high">High</option>
+                  <option value="standard">Standard</option>
+                  <option value="low">Low</option>
                 </select>
               </div>
 
@@ -486,18 +523,21 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
                 >
                   <option value="active">Active</option>
-                  <option value="follow_up_pending">Follow-up Pending</option>
+                  <option value="need_attention">Need Attention</option>
                   <option value="at_risk">At Risk</option>
                   <option value="on_hold">On Hold</option>
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Default is Active. When tasks or follow-ups are pending, status automatically reflects Need Attention.
+                </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block font-semibold text-zinc-700 mb-1">Start Date</label>
+                <label className="block font-semibold text-zinc-700 mb-1">Start Date (Optional)</label>
                 <input
                   type="date"
                   value={startDate}
@@ -508,7 +548,7 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
 
               <div>
                 <label className="block font-semibold text-zinc-700 mb-1">
-                  Expected Completion Date
+                  Expected Completion Date (Optional)
                 </label>
                 <input
                   type="date"

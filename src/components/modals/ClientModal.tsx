@@ -59,10 +59,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setError('Client name is required');
       return;
     }
-    if (!phone.trim()) {
-      setError('Contact phone is required');
-      return;
-    }
 
     setSaving(true);
     setError(null);
@@ -141,14 +137,13 @@ export const ClientModal: React.FC<ClientModalProps> = ({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-zinc-700 mb-1">Phone *</label>
+              <label className="block font-semibold text-zinc-700 mb-1">Phone (Optional)</label>
               <input
                 id="client-phone-input"
                 type="text"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+880 1819-..."
-                required
+                placeholder="+880 1819-... (Optional)"
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg"
               />
             </div>

@@ -1,14 +1,43 @@
-export type Priority = 'urgent' | 'standard' | 'medium' | 'low';
+export type Priority = 'urgent' | 'high' | 'standard' | 'medium' | 'low';
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed';
 
 export type ProjectStatus =
   | 'active'
+  | 'need_attention'
   | 'follow_up_pending'
   | 'at_risk'
   | 'on_hold'
   | 'completed'
   | 'cancelled';
+
+/**
+ * Computes dynamic project status:
+ * - At Risk, On Hold, Completed, and Cancelled are preserved as manually set.
+ * - For Active / Need Attention:
+ *   If there are any pending/in-progress tasks or pending follow-ups, shows 'need_attention'.
+ *   Once all tasks/follow-ups are completed, automatically returns to 'active'.
+ */
+export function getEffectiveProjectStatus(project: {
+  status: ProjectStatus;
+  tasks?: Array<{ status: string }>;
+  follow_ups?: Array<{ status?: string }>;
+}): ProjectStatus {
+  if (
+    project.status === 'at_risk' ||
+    project.status === 'on_hold' ||
+    project.status === 'completed' ||
+    project.status === 'cancelled'
+  ) {
+    return project.status;
+  }
+  const hasPendingTask = (project.tasks || []).some((t) => t.status !== 'completed');
+  const hasPendingFollowUp = (project.follow_ups || []).some((f) => f.status !== 'completed');
+  if (hasPendingTask || hasPendingFollowUp) {
+    return 'need_attention';
+  }
+  return 'active';
+}
 
 export type HealthStatus = 'on_track' | 'follow_up_needed' | 'at_risk' | 'overdue' | 'completed';
 

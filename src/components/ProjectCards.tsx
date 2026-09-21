@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calendar, User, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Project } from '../types';
+import { getEffectiveProjectStatus } from '../types';
 import { PriorityBadge, StatusBadge, HealthBadge } from './Badges';
 
 interface ProjectCardProps {
@@ -10,6 +11,7 @@ interface ProjectCardProps {
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) => {
   const isOverdue = project.is_overdue;
+  const effectiveStatus = getEffectiveProjectStatus(project);
 
   return (
     <div
@@ -23,7 +25,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
         {/* Top Badges */}
         <div className="flex items-center justify-between gap-2 mb-3">
           <PriorityBadge priority={project.priority} size="sm" />
-          <StatusBadge status={project.status} size="sm" />
+          <StatusBadge status={effectiveStatus} size="sm" />
         </div>
 
         {/* Title & Type */}
@@ -149,7 +151,7 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
 
       {/* Status */}
       <td className="py-3 px-4">
-        <StatusBadge status={project.status} size="sm" />
+        <StatusBadge status={getEffectiveProjectStatus(project)} size="sm" />
       </td>
 
       {/* Last Follow-up */}

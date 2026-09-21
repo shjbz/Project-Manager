@@ -761,30 +761,32 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             <span>+ Add Task</span>
           </button>
 
-          {/* Edit current chart icon */}
-          {onEditChart && (
-            <button
-              onClick={() => onEditChart(activeChart)}
-              className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition cursor-pointer"
-              title="Edit schedule name, dates, duration and notes"
-            >
-              <Edit2 className="w-4 h-4" />
-            </button>
-          )}
+          {/* Edit current chart icon beside delete icon */}
+          <div className="flex items-center gap-1">
+            {onEditChart && (
+              <button
+                onClick={() => onEditChart(activeChart)}
+                className="p-2 text-zinc-600 hover:text-zinc-950 bg-white hover:bg-zinc-100 border border-zinc-200 rounded-xl transition cursor-pointer shadow-2xs"
+                title="Edit schedule details"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+            )}
 
-          {/* Delete current chart */}
-          <button
-            onClick={() => {
-              if (confirm(`Delete Gantt schedule "${chartTitle}"?`)) {
-                onDeleteChart(activeChart.id);
-                if (onSelectChart) onSelectChart(null);
-              }
-            }}
-            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-            title="Delete this Gantt chart"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+            {/* Delete current chart */}
+            <button
+              onClick={() => {
+                if (confirm(`Delete Gantt schedule "${chartTitle}"?`)) {
+                  onDeleteChart(activeChart.id);
+                  if (onSelectChart) onSelectChart(null);
+                }
+              }}
+              className="p-2 text-zinc-500 hover:text-rose-600 bg-white hover:bg-rose-50 border border-zinc-200 hover:border-rose-200 rounded-xl transition cursor-pointer shadow-2xs"
+              title="Delete this Gantt chart"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -857,12 +859,12 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                     </div>
 
                     {/* Reorder Up/Down & Action Buttons */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
+                    <div className="flex items-center gap-1 opacity-80 sm:opacity-40 group-hover:opacity-100 transition shrink-0">
                       <div className="flex items-center bg-zinc-100 rounded-md p-0.5 border border-zinc-200">
                         <button
                           onClick={() => handleMoveTask(task.id, 'up')}
                           disabled={idx === 0}
-                          className="p-1 text-zinc-500 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
+                          className="p-1 text-zinc-600 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
                           title="Move task up"
                         >
                           <ChevronUp className="w-3.5 h-3.5" />
@@ -870,7 +872,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                         <button
                           onClick={() => handleMoveTask(task.id, 'down')}
                           disabled={idx === filteredTasks.length - 1}
-                          className="p-1 text-zinc-500 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
+                          className="p-1 text-zinc-600 hover:text-zinc-950 hover:bg-white rounded disabled:opacity-20 disabled:hover:bg-transparent disabled:cursor-not-allowed cursor-pointer transition"
                           title="Move task down"
                         >
                           <ChevronDown className="w-3.5 h-3.5" />
@@ -879,7 +881,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
 
                       <button
                         onClick={() => onOpenTaskModal(activeChart, task)}
-                        className="p-1 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
+                        className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200 rounded cursor-pointer transition"
                         title="Edit Task"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -890,7 +892,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
                             onDeleteTask(activeChart.id, task.id);
                           }
                         }}
-                        className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-100 rounded cursor-pointer transition"
+                        className="p-1 text-zinc-500 hover:text-rose-600 hover:bg-rose-100 rounded cursor-pointer transition"
                         title="Delete Task"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

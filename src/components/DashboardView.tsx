@@ -19,6 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, DashboardStats, Priority, ProjectStatus } from '../types';
+import { getEffectiveProjectStatus } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface DashboardViewProps {
@@ -49,7 +50,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenNewProject,
   onOpenNewFollowUp,
 }) => {
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -80,6 +81,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return testAgainst(new Date()) || testAgainst(new Date('2026-09-15'));
   };
 
+  const isProjectDueThisWeek = (p: Project): boolean => {
+    if (isDateThisWeek(p.next_task?.due_date) || isDateThisWeek(p.next_follow_up?.follow_up_date) || isDateThisWeek(p.expected_completion_date)) {
+      return true;
+    }
+    const hasTaskThisWeek = (p.tasks || []).some((t) => t.status !== 'completed' && isDateThisWeek(t.due_date));
+    const hasFollowUpThisWeek = (p.follow_ups || []).some((f) => f.status !== 'completed' && isDateThisWeek(f.follow_up_date));
+    return hasTaskThisWeek || hasFollowUpThisWeek;
+  };
+
+  const isProjectOverdue = (p: Project): boolean => {
+    const todayStr = '2026-09-15';
+    if (p.is_overdue || p.health_status === 'overdue') return true;
+    const hasOverdueTask = (p.tasks || []).some((t) => t.status !== 'completed' && t.due_date && t.due_date < todayStr);
+    const hasOverdueFollowUp = (p.follow_ups || []).some((f) => f.status !== 'completed' && f.follow_up_date && f.follow_up_date < todayStr);
+    return hasOverdueTask || hasOverdueFollowUp;
+  };
+
   // Filtered & Sorted projects for the dashboard project area
   const filteredProjects = projects
     .filter((p) => {
@@ -94,47 +112,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           (p.project_lead?.name && p.project_lead.name.toLowerCase().includes(q));
         if (!match) return false;
       }
-      if (priorityFilter !== 'all' && p.priority !== priorityFilter) return false;
-      if (statusFilter === 'follow_up_pending') {
-        const isFollowUp =
-          p.status === 'follow_up_pending' ||
-          p.health_status === 'follow_up_needed' ||
-          (p.next_follow_up && p.next_follow_up.status !== 'completed');
-        if (!isFollowUp) return false;
-      } else if (statusFilter === 'active') {
-        if (p.status === 'completed' || p.status === 'cancelled') return false;
-      } else if (statusFilter === 'at_risk') {
-        if (p.status !== 'at_risk' && p.health_status !== 'at_risk') return false;
-      } else if (statusFilter !== 'all' && p.status !== statusFilter) {
-        return false;
+      if (priorityFilter !== 'all') {
+        if (priorityFilter === 'high' || priorityFilter === 'urgent') {
+          const hasUrgentTask = (p.tasks || []).some(
+            (t) => (t.priority === 'urgent' || t.priority === 'high') && t.status !== 'completed'
+          );
+          if (p.priority !== 'urgent' && p.priority !== 'high' && !hasUrgentTask) {
+            return false;
+          }
+        } else if (priorityFilter === 'standard') {
+          if (p.priority !== 'standard') return false;
+        } else if (priorityFilter === 'low') {
+          if (p.priority !== 'low') return false;
+        }
+      }
+      if (statusFilter !== 'all') {
+        const effective = getEffectiveProjectStatus(p);
+        if (statusFilter === 'need_attention' || statusFilter === 'follow_up_pending') {
+          if (effective !== 'need_attention' && p.status !== 'need_attention' && p.status !== 'follow_up_pending') {
+            return false;
+          }
+        } else if (statusFilter === 'active') {
+          if (effective !== 'active' && p.status !== 'active') return false;
+        } else if (statusFilter === 'at_risk') {
+          if (p.status !== 'at_risk' && p.health_status !== 'at_risk') return false;
+        } else if (statusFilter === 'on_hold') {
+          if (p.status !== 'on_hold') return false;
+        } else if (statusFilter === 'completed') {
+          if (p.status !== 'completed') return false;
+        } else if (statusFilter === 'cancelled') {
+          if (p.status !== 'cancelled') return false;
+        } else if (p.status !== statusFilter) {
+          return false;
+        }
       }
       if (leadFilter !== 'all' && p.project_lead_id !== leadFilter && !p.team_member_ids?.includes(leadFilter)) {
         return false;
       }
       if (dueDateFilter === 'overdue') {
-        if (!p.is_overdue && p.health_status !== 'overdue') return false;
+        if (!isProjectOverdue(p)) return false;
       }
       if (dueDateFilter === 'today') {
+        const todayStr = '2026-09-15';
         const isToday =
-          p.next_task?.due_date === '2026-09-15' || p.next_follow_up?.follow_up_date === '2026-09-15';
+          p.next_task?.due_date === todayStr ||
+          p.next_follow_up?.follow_up_date === todayStr ||
+          (p.tasks || []).some((t) => t.status !== 'completed' && t.due_date === todayStr) ||
+          (p.follow_ups || []).some((f) => f.status !== 'completed' && f.follow_up_date === todayStr);
         if (!isToday) return false;
       }
       if (dueDateFilter === 'this_week') {
-        const hasTaskThisWeek = isDateThisWeek(p.next_task?.due_date);
-        const hasFollowUpThisWeek = isDateThisWeek(p.next_follow_up?.follow_up_date);
-        const hasCompletionThisWeek = isDateThisWeek(p.expected_completion_date);
-        if (!hasTaskThisWeek && !hasFollowUpThisWeek && !hasCompletionThisWeek) {
-          return false;
-        }
+        if (!isProjectDueThisWeek(p)) return false;
       }
       return true;
     })
     .sort((a, b) => {
       if (sortBy === 'due_this_week') {
-        const aThisWeek =
-          isDateThisWeek(a.next_task?.due_date) || isDateThisWeek(a.next_follow_up?.follow_up_date);
-        const bThisWeek =
-          isDateThisWeek(b.next_task?.due_date) || isDateThisWeek(b.next_follow_up?.follow_up_date);
+        const aThisWeek = isProjectDueThisWeek(a);
+        const bThisWeek = isProjectDueThisWeek(b);
         if (aThisWeek && !bThisWeek) return -1;
         if (!aThisWeek && bThisWeek) return 1;
         return (a.next_task?.due_date || '9999').localeCompare(b.next_task?.due_date || '9999');
@@ -150,58 +185,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return 0;
     });
 
-  const activeProjectsCount =
-    stats.activeProjects ||
-    projects.filter((p) => p.status === 'active' || (p.status !== 'completed' && p.status !== 'cancelled')).length;
-
-  const followUpCount =
-    stats.followUpPending ||
-    projects.filter(
-      (p) =>
-        p.status === 'follow_up_pending' ||
-        p.health_status === 'follow_up_needed' ||
-        (p.next_follow_up && p.next_follow_up.status !== 'completed')
-    ).length;
-
-  const dueThisWeekCount = projects.filter(
-    (p) =>
-      isDateThisWeek(p.next_task?.due_date) ||
-      isDateThisWeek(p.next_follow_up?.follow_up_date) ||
-      isDateThisWeek(p.expected_completion_date)
+  const activeProjectsCount = projects.filter(
+    (p) => !p.is_archived && p.status !== 'completed' && p.status !== 'cancelled' && getEffectiveProjectStatus(p) === 'active'
   ).length;
 
-  const overdueCount =
-    stats.overdue || projects.filter((p) => p.is_overdue || p.health_status === 'overdue').length;
+  const needAttentionCount = projects.filter(
+    (p) => !p.is_archived && p.status !== 'completed' && p.status !== 'cancelled' && getEffectiveProjectStatus(p) === 'need_attention'
+  ).length;
 
-  const atRiskCount =
-    stats.statusBreakdown?.atRisk ||
-    projects.filter((p) => p.status === 'at_risk' || p.health_status === 'at_risk').length;
+  const dueThisWeekCount = projects.filter((p) => !p.is_archived && isProjectDueThisWeek(p)).length;
 
-  const urgentCount =
-    stats.urgentProjects ||
-    projects.filter((p) => p.priority === 'urgent' && p.status !== 'completed').length;
+  const overdueCount = projects.filter((p) => !p.is_archived && isProjectOverdue(p)).length;
 
-  const completedCount =
-    stats.completedThisMonth ||
-    stats.statusBreakdown?.completed ||
-    projects.filter((p) => p.status === 'completed').length;
+  const atRiskCount = projects.filter(
+    (p) => !p.is_archived && (p.status === 'at_risk' || p.health_status === 'at_risk')
+  ).length;
+
+  // Number of urgent tasks pending across all projects
+  const urgentTasksCount = projects.reduce((total, p) => {
+    if (p.is_archived) return total;
+    const count = (p.tasks || []).filter(
+      (t) => (t.priority === 'urgent' || t.priority === 'high') && t.status !== 'completed'
+    ).length;
+    return total + count;
+  }, 0);
+
+  const completedCount = projects.filter((p) => !p.is_archived && p.status === 'completed').length;
 
   // Active card quick filter helper
   const isCardActive = (
-    cardId: 'active' | 'follow_ups' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
+    cardId: 'active' | 'need_attention' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
   ) => {
     if (cardId === 'active') return statusFilter === 'active';
-    if (cardId === 'follow_ups') return statusFilter === 'follow_up_pending';
+    if (cardId === 'need_attention') return statusFilter === 'need_attention';
     if (cardId === 'due_this_week') return dueDateFilter === 'this_week';
     if (cardId === 'overdue') return dueDateFilter === 'overdue';
     if (cardId === 'at_risk') return statusFilter === 'at_risk';
-    if (cardId === 'urgent') return priorityFilter === 'urgent';
+    if (cardId === 'urgent') return priorityFilter === 'high';
     if (cardId === 'completed') return statusFilter === 'completed';
     return false;
   };
 
   const handleCardClick = (
-    cardId: 'active' | 'follow_ups' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
+    cardId: 'active' | 'need_attention' | 'due_this_week' | 'overdue' | 'at_risk' | 'urgent' | 'completed'
   ) => {
     if (isCardActive(cardId)) {
       // Toggle off / Reset to all
@@ -213,8 +239,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         setStatusFilter('active');
         setDueDateFilter('all');
         setPriorityFilter('all');
-      } else if (cardId === 'follow_ups') {
-        setStatusFilter('follow_up_pending');
+      } else if (cardId === 'need_attention') {
+        setStatusFilter('need_attention');
         setDueDateFilter('all');
         setPriorityFilter('all');
       } else if (cardId === 'due_this_week') {
@@ -230,7 +256,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         setDueDateFilter('all');
         setPriorityFilter('all');
       } else if (cardId === 'urgent') {
-        setPriorityFilter('urgent');
+        setPriorityFilter('high');
         setStatusFilter('all');
         setDueDateFilter('all');
       } else if (cardId === 'completed') {
@@ -255,9 +281,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       dotColor: 'bg-emerald-500',
     },
     {
-      id: 'follow_ups' as const,
-      label: 'Follow-ups',
-      count: followUpCount,
+      id: 'need_attention' as const,
+      label: 'Need Attention',
+      count: needAttentionCount,
       icon: <CalendarCheck className="w-4 h-4 text-amber-500" />,
       dotColor: 'bg-amber-500',
     },
@@ -285,8 +311,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     },
     {
       id: 'urgent' as const,
-      label: 'Urgent',
-      count: urgentCount,
+      label: 'Urgent Tasks',
+      count: urgentTasksCount,
       icon: <Flame className="w-4 h-4 text-rose-500" />,
       dotColor: 'bg-rose-500',
     },
@@ -555,7 +581,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
             >
               <option value="all">All Priorities</option>
-              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
               <option value="standard">Standard</option>
               <option value="low">Low</option>
             </select>
@@ -572,10 +598,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
-              <option value="follow_up_pending">Follow-up Pending</option>
+              <option value="need_attention">Need Attention</option>
               <option value="at_risk">At Risk</option>
               <option value="on_hold">On Hold</option>
               <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
 
@@ -838,31 +865,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Panel 3: Team Workload (Spec #34) */}
+        {/* Panel 3: Ongoing Task Count */}
         <div className="bg-indigo-50/40 border border-indigo-200/80 rounded-2xl p-5 shadow-xs flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-400 via-indigo-500 to-purple-400" />
           <div>
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-indigo-200/60">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-800 flex items-center justify-center shadow-2xs border border-indigo-200 shrink-0">
-                  <Users2 className="w-4 h-4" />
+                  <CheckSquare className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-950">
-                    Team Workload
+                    Ongoing Task Count
                   </h3>
-                  <p className="text-[11px] text-indigo-700/80 font-medium">Capacity & active allocations</p>
+                  <p className="text-[11px] text-indigo-700/80 font-medium">Incomplete tasks assigned per person</p>
                 </div>
               </div>
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200 shadow-2xs">
-                {teamWorkload.length} Staff
+                {teamWorkload.reduce((sum, m) => sum + (m.ongoingTasksCount ?? m.activeProjects ?? 0), 0)} Ongoing Tasks
               </span>
             </div>
 
             <div className="space-y-2.5 pt-0.5">
               {teamWorkload.map((m) => {
-                const percentage = Math.min(100, Math.round((m.activeProjects / 6) * 100));
+                const taskCount = m.ongoingTasksCount ?? m.activeProjects ?? 0;
+                const percentage = Math.min(100, Math.round((taskCount / 10) * 100));
                 const isSelected = leadFilter === m.id;
+                const urgentNum = m.urgentTasksCount ?? m.urgentProjects ?? 0;
                 return (
                   <div
                     key={m.id}
@@ -888,21 +917,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        {m.urgentProjects > 0 && (
+                        {urgentNum > 0 && (
                           <span className="text-[10px] text-rose-700 font-bold bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded">
-                            {m.urgentProjects} urgent
+                            {urgentNum} urgent
                           </span>
                         )}
-                        <span className="font-bold text-zinc-800 text-xs">{m.activeProjects} active</span>
+                        <span className="font-bold text-zinc-800 text-xs">
+                          {taskCount} {taskCount === 1 ? 'ongoing task' : 'ongoing tasks'}
+                        </span>
                       </div>
                     </div>
                     {/* Visual capacity progress bar */}
                     <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
-                          m.urgentProjects > 0 ? 'bg-rose-500' : 'bg-indigo-600'
+                          urgentNum > 0 ? 'bg-rose-500' : 'bg-indigo-600'
                         }`}
-                        style={{ width: `${Math.max(15, percentage)}%` }}
+                        style={{ width: `${Math.max(8, percentage)}%` }}
                       />
                     </div>
                   </div>
@@ -912,7 +943,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="mt-4 pt-3 border-t border-indigo-200/50 flex items-center justify-center text-[11px] text-indigo-800/80 font-medium">
-            <span>Click any team member to filter their projects</span>
+            <span>Click any team member to filter their assigned projects</span>
           </div>
         </div>
       </div>

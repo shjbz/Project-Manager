@@ -218,32 +218,53 @@ export default function App() {
 
   const liveTeamWorkload = useMemo(() => {
     if (!team || team.length === 0) return teamWorkload;
+    const todayStr = '2026-09-15';
+
     return team
       .filter((m) => m.status === 'active')
       .map((m) => {
-        const assigned = projects.filter((p) => {
+        let ongoingTasksCount = 0;
+        let urgentTasksCount = 0;
+        let overdueTasksCount = 0;
+
+        projects.forEach((p) => {
+          if (p.is_archived) return;
+          (p.tasks || []).forEach((t) => {
+            if (t.status !== 'completed') {
+              const isAssigned = t.assigned_to === m.id || (!t.assigned_to && p.project_lead_id === m.id);
+              if (isAssigned) {
+                ongoingTasksCount++;
+                if (t.priority === 'urgent' || t.priority === 'high') {
+                  urgentTasksCount++;
+                }
+                if (t.due_date && t.due_date < todayStr) {
+                  overdueTasksCount++;
+                }
+              }
+            }
+          });
+        });
+
+        const assignedProjects = projects.filter((p) => {
           if (p.is_archived) return false;
           const memberIds = Array.isArray(p.team_member_ids) ? p.team_member_ids : [];
           return p.project_lead_id === m.id || memberIds.includes(m.id);
         });
-        const activeProj = assigned.filter((p) => p.status === 'active' || p.status === 'at_risk');
-        const urgentProj = assigned.filter((p) => p.priority === 'urgent' && p.status !== 'completed' && p.status !== 'cancelled');
-        const followUpPending = assigned.filter((p) => p.status === 'follow_up_pending');
-        const overdueProjects = assigned.filter((p) => p.is_overdue);
 
         return {
           id: m.id,
           name: m.name,
           designation: m.designation,
           avatar: m.avatar,
-          totalProjects: assigned.length,
-          activeProjects: activeProj.length,
-          urgentProjects: urgentProj.length,
-          followUpPending: followUpPending.length,
-          overdueProjects: overdueProjects.length,
+          ongoingTasksCount,
+          urgentTasksCount,
+          overdueTasksCount,
+          totalProjects: assignedProjects.length,
+          activeProjects: ongoingTasksCount,
+          urgentProjects: urgentTasksCount,
         };
       })
-      .sort((a, b) => b.totalProjects - a.totalProjects);
+      .sort((a, b) => b.ongoingTasksCount - a.ongoingTasksCount);
   }, [team, projects, teamWorkload]);
 
   const liveOverdueItems = useMemo(() => {

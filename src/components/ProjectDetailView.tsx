@@ -21,6 +21,7 @@ import {
   Archive,
 } from 'lucide-react';
 import type { Project, TeamMember, Task, FollowUp } from '../types';
+import { getEffectiveProjectStatus } from '../types';
 import { PriorityBadge, StatusBadge } from './Badges';
 import { ConfirmModal } from './modals/ConfirmModal';
 
@@ -80,6 +81,21 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 
   const isOverdue = project.is_overdue;
   const otherMembers = (project.team_members || []).filter((m) => m.id !== project.project_lead_id);
+  const effectiveStatus = getEffectiveProjectStatus(project);
+
+  const completedFollowUps = (project.follow_ups || [])
+    .filter((f) => f.status === 'completed')
+    .sort((a, b) => b.follow_up_date.localeCompare(a.follow_up_date));
+  const lastCompletedFollowUp =
+    completedFollowUps[0] ||
+    (project.last_follow_up?.status === 'completed' ? project.last_follow_up : null);
+
+  const pendingFollowUps = (project.follow_ups || [])
+    .filter((f) => f.status !== 'completed')
+    .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+  const nextPendingFollowUp =
+    pendingFollowUps[0] ||
+    (project.next_follow_up?.status !== 'completed' ? project.next_follow_up : null);
 
   const handleStatusChange = async (newStatus: any) => {
     setUpdating(true);
@@ -199,7 +215,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <PriorityBadge priority={project.priority} size="md" />
-              <StatusBadge status={project.status} size="md" />
+              <StatusBadge status={effectiveStatus} size="md" />
               {isOverdue && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold bg-rose-100 text-rose-800 rounded-md">
                   <AlertCircle className="w-3.5 h-3.5" /> ATTENTION OVERDUE
@@ -230,7 +246,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 onChange={(e) => handlePriorityChange(e.target.value)}
                 className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800"
               >
-                <option value="urgent">Urgent</option>
+                <option value="high">High</option>
                 <option value="standard">Standard</option>
                 <option value="low">Low</option>
               </select>
@@ -245,7 +261,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 className="text-xs bg-white border border-zinc-300 rounded px-2 py-1 font-medium text-zinc-800"
               >
                 <option value="active">Active</option>
-                <option value="follow_up_pending">Follow-up Pending</option>
+                <option value="need_attention">Need Attention</option>
                 <option value="at_risk">At Risk</option>
                 <option value="on_hold">On Hold</option>
                 <option value="completed">Completed</option>
@@ -328,29 +344,69 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           <div className="bg-zinc-50/60 rounded-lg p-3.5 border border-zinc-200/70">
             <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center justify-between">
               <span>Follow-up Status</span>
-              {project.next_follow_up && (
+              {nextPendingFollowUp && (
                 <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                  Next: {project.next_follow_up.follow_up_date}
+                  Next: {nextPendingFollowUp.follow_up_date}
                 </span>
               )}
             </div>
-            <div className="space-y-1 text-xs">
-              <div className="text-zinc-600">
-                <span className="text-zinc-400">Last:</span>{' '}
-                <span className="font-medium text-zinc-800">
-                  {project.last_follow_up?.follow_up_date || 'No record'}
-                </span>
-                {project.last_follow_up?.method && (
-                  <span className="text-[11px] text-zinc-500 ml-1">
-                    via {project.last_follow_up.method}
-                  </span>
+            <div className="space-y-2 text-xs">
+              <div>
+                <div className="flex items-center gap-1.5 text-zinc-700">
+                  <span className="text-zinc-400 font-semibold">Last:</span>{' '}
+                  {lastCompletedFollowUp ? (
+                    <>
+                      <span className="font-semibold text-zinc-900">
+                        {lastCompletedFollowUp.follow_up_date}
+                      </span>
+                      <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        Complete
+                      </span>
+                      {lastCompletedFollowUp.method && (
+                        <span className="text-[11px] text-zinc-500">
+                          via {lastCompletedFollowUp.method}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-zinc-500 italic">No Follow-Up yet</span>
+                  )}
+                </div>
+                {lastCompletedFollowUp?.notes && (
+                  <p className="text-[11px] text-zinc-500 italic line-clamp-1 mt-0.5 pl-2 border-l-2 border-zinc-200">
+                    &ldquo;{lastCompletedFollowUp.notes}&rdquo;
+                  </p>
                 )}
               </div>
-              {project.last_follow_up?.notes && (
-                <p className="text-[11px] text-zinc-500 italic line-clamp-1">
-                  &ldquo;{project.last_follow_up.notes}&rdquo;
-                </p>
-              )}
+
+              <div className="pt-1.5 border-t border-zinc-200/60">
+                <div className="flex items-center gap-1.5 text-zinc-700">
+                  <span className="text-zinc-400 font-semibold">Next:</span>{' '}
+                  {nextPendingFollowUp ? (
+                    <>
+                      <span className="font-semibold text-zinc-900">
+                        {nextPendingFollowUp.follow_up_date}
+                      </span>
+                      <span className="text-[10px] font-medium text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                        Pending
+                      </span>
+                      {nextPendingFollowUp.method && (
+                        <span className="text-[11px] text-zinc-500">
+                          via {nextPendingFollowUp.method}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-zinc-500 italic">No Pending Follow-up</span>
+                  )}
+                </div>
+                {nextPendingFollowUp?.notes && (
+                  <p className="text-[11px] text-zinc-500 italic line-clamp-1 mt-0.5 pl-2 border-l-2 border-amber-200">
+                    &ldquo;{nextPendingFollowUp.notes}&rdquo;
+                  </p>
+                )}
+              </div>
+
               <div className="pt-1">
                 <button
                   onClick={onOpenAddFollowUp}
@@ -503,6 +559,92 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 </div>
               ) : (
                 <div className="text-xs text-zinc-400 py-3">No tasks added yet.</div>
+              )}
+            </div>
+
+            {/* Recent Follow-ups Preview (Spec: Overview section should show last few follow-up records with Date and description) */}
+            <div className="bg-white border border-zinc-200 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900">
+                    Recent Follow-ups ({project.follow_ups?.length || 0})
+                  </h3>
+                  <span className="text-[11px] text-zinc-500 hidden sm:inline">
+                    · Client communications & site discussions
+                  </span>
+                </div>
+                <button
+                  onClick={onOpenAddFollowUp}
+                  className="text-xs font-semibold text-zinc-900 hover:underline cursor-pointer"
+                >
+                  + Record Follow-up
+                </button>
+              </div>
+
+              {project.follow_ups && project.follow_ups.length > 0 ? (
+                <div className="divide-y divide-zinc-100">
+                  {[...project.follow_ups]
+                    .sort((a, b) => b.follow_up_date.localeCompare(a.follow_up_date))
+                    .slice(0, 4)
+                    .map((fu) => (
+                      <div key={fu.id} className="py-2.5 flex items-start justify-between text-xs gap-3">
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-zinc-900">{fu.follow_up_date}</span>
+                            {fu.method && (
+                              <span className="text-[11px] text-zinc-600 px-1.5 py-0.2 rounded bg-zinc-100 border border-zinc-200">
+                                {fu.method}
+                              </span>
+                            )}
+                            <span
+                              className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${
+                                fu.status === 'completed'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}
+                            >
+                              {fu.status === 'completed' ? 'Complete' : 'Pending'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-700 leading-snug whitespace-pre-line">
+                            {fu.notes || <span className="italic text-zinc-400">No description recorded</span>}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateFollowUpStatus(
+                                fu.id,
+                                fu.status === 'completed' ? 'pending' : 'completed'
+                              )
+                            }
+                            className={`text-[11px] font-medium px-2 py-1 rounded transition cursor-pointer border ${
+                              fu.status === 'completed'
+                                ? 'border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                                : 'border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {fu.status === 'completed' ? 'Mark Pending' : 'Mark Complete'}
+                          </button>
+                          {onEditFollowUp && (
+                            <button
+                              type="button"
+                              onClick={() => onEditFollowUp(fu)}
+                              className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded transition cursor-pointer"
+                              title="Edit Follow-up"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="p-4 bg-zinc-50 rounded-lg text-center text-xs text-zinc-500">
+                  Last: No Follow-Up yet. Click &ldquo;+ Record Follow-up&rdquo; to log your first client call or meeting.
+                </div>
               )}
             </div>
           </div>

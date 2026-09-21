@@ -48,10 +48,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         setDueDate(initialData.due_date);
         setStatus(initialData.status);
       } else {
-        setSelectedProjectId(defaultProjectId || (projects[0]?.id || ''));
+        const initialProjId = defaultProjectId || (projects[0]?.id || '');
+        const targetProj = projects.find((p) => p.id === initialProjId);
+        const leadId = targetProj?.project_lead_id || targetProj?.project_lead?.id || team[0]?.id || '';
+        setSelectedProjectId(initialProjId);
         setTitle('');
         setDescription('');
-        setAssignedTo(team[0]?.id || '');
+        setAssignedTo(leadId);
         setPriority('medium');
         setDueDate(defaultDueDate || new Date().toISOString().slice(0, 10));
         setStatus('pending');
@@ -143,7 +146,17 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               ) : (
                 <select
                   value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  onChange={(e) => {
+                    const newProjId = e.target.value;
+                    setSelectedProjectId(newProjId);
+                    if (!isEditing) {
+                      const newTargetProj = projects.find((p) => p.id === newProjId);
+                      const newLeadId = newTargetProj?.project_lead_id || newTargetProj?.project_lead?.id;
+                      if (newLeadId) {
+                        setAssignedTo(newLeadId);
+                      }
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
                   required
                 >
@@ -191,11 +204,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 onChange={(e) => setAssignedTo(e.target.value)}
                 className="w-full px-3 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900 bg-white"
               >
-                {team.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.designation})
-                  </option>
-                ))}
+                {team.map((m) => {
+                  const isLead =
+                    currentProject?.project_lead_id === m.id ||
+                    currentProject?.project_lead?.id === m.id;
+                  return (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.designation}){isLead ? ' ★ Project Lead' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 

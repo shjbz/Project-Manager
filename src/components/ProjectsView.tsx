@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, Priority, ProjectStatus } from '../types';
+import { getEffectiveProjectStatus } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface ProjectsViewProps {
@@ -76,8 +77,21 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         (p.project_lead?.name && p.project_lead.name.toLowerCase().includes(q));
       if (!match) return false;
     }
-    if (priority !== 'all' && p.priority !== priority) return false;
-    if (status !== 'all' && p.status !== status) return false;
+    if (priority !== 'all') {
+      if ((priority === 'high' || priority === 'urgent') && (p.priority !== 'high' && p.priority !== 'urgent')) return false;
+      if (priority === 'standard' && p.priority !== 'standard') return false;
+      if (priority === 'low' && p.priority !== 'low') return false;
+    }
+    if (status !== 'all') {
+      const effective = getEffectiveProjectStatus(p);
+      if (status === 'need_attention') {
+        if (effective !== 'need_attention' && p.status !== 'need_attention' && p.status !== 'follow_up_pending') return false;
+      } else if (status === 'active') {
+        if (effective !== 'active' && p.status !== 'active') return false;
+      } else if (p.status !== status) {
+        return false;
+      }
+    }
     if (leadId !== 'all' && p.project_lead_id !== leadId && !p.team_member_ids?.includes(leadId)) {
       return false;
     }
@@ -232,7 +246,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-zinc-700"
           >
             <option value="all">All Priorities</option>
-            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
             <option value="standard">Standard</option>
             <option value="low">Low</option>
           </select>
@@ -245,7 +259,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           >
             <option value="all">All Statuses</option>
             <option value="active">Active</option>
-            <option value="follow_up_pending">Follow-up Pending</option>
+            <option value="need_attention">Need Attention</option>
             <option value="at_risk">At Risk</option>
             <option value="on_hold">On Hold</option>
             <option value="completed">Completed</option>
