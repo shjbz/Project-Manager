@@ -292,6 +292,81 @@ export function getProjectFollowUpStatus(project: {
   };
 }
 
+/**
+ * Format relative due text (e.g., "2 Days", "Today", "1 Week", "1 Month", "3 Days Overdue")
+ */
+export function formatRelativeDue(targetDateStr?: string, referenceDateStr?: string): {
+  relativeText: string;
+  isOverdue: boolean;
+  isToday: boolean;
+  dateStr: string;
+} | null {
+  if (!targetDateStr) return null;
+
+  const todayStr = referenceDateStr || new Date().toISOString().slice(0, 10);
+  const parts = targetDateStr.split('-');
+  if (parts.length < 3) return null;
+
+  const tY = Number(parts[0]);
+  const tM = Number(parts[1]);
+  const tD = Number(parts[2]);
+
+  const refParts = todayStr.split('-');
+  const rY = Number(refParts[0]);
+  const rM = Number(refParts[1]);
+  const rD = Number(refParts[2]);
+
+  if (isNaN(tY) || isNaN(tM) || isNaN(tD) || isNaN(rY) || isNaN(rM) || isNaN(rD)) {
+    return { relativeText: targetDateStr, isOverdue: false, isToday: false, dateStr: targetDateStr };
+  }
+
+  const target = new Date(tY, tM - 1, tD);
+  const today = new Date(rY, rM - 1, rD);
+
+  const diffTime = target.getTime() - today.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  let relativeText = '';
+  const isOverdue = diffDays < 0;
+  const isToday = diffDays === 0;
+
+  if (diffDays === 0) {
+    relativeText = 'Today';
+  } else if (diffDays === 1) {
+    relativeText = 'Tomorrow';
+  } else if (diffDays === -1) {
+    relativeText = '1 Day Overdue';
+  } else if (diffDays > 1) {
+    if (diffDays < 7) {
+      relativeText = `${diffDays} Days`;
+    } else if (diffDays < 30) {
+      const weeks = Math.round(diffDays / 7);
+      relativeText = weeks === 1 ? '1 Week' : `${weeks} Weeks`;
+    } else {
+      const months = Math.round(diffDays / 30);
+      relativeText = months === 1 ? '1 Month' : `${months} Months`;
+    }
+  } else {
+    const absDays = Math.abs(diffDays);
+    if (absDays < 7) {
+      relativeText = `${absDays} Days Overdue`;
+    } else if (absDays < 30) {
+      const weeks = Math.round(absDays / 7);
+      relativeText = `${weeks} ${weeks === 1 ? 'Week' : 'Weeks'} Overdue`;
+    } else {
+      const months = Math.round(absDays / 30);
+      relativeText = `${months} ${months === 1 ? 'Month' : 'Months'} Overdue`;
+    }
+  }
+
+  return {
+    relativeText,
+    isOverdue,
+    isToday,
+    dateStr: targetDateStr,
+  };
+}
+
 export type HealthStatus = 'on_track' | 'follow_up_needed' | 'at_risk' | 'overdue' | 'completed';
 
 export type ProjectType =

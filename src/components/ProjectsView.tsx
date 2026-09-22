@@ -167,9 +167,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         <button
           id="projects-create-new-btn"
           onClick={onOpenNewProject}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg transition cursor-pointer shadow-xs"
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg transition cursor-pointer shadow-xs"
         >
-          <Plus className="w-4 h-4" />
           <span>+ New Project</span>
         </button>
       </div>
@@ -374,7 +373,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <th className="py-3 px-4">Project Lead</th>
                   <th className="py-3 px-4">Priority</th>
                   <th className="py-3 px-4">Project Status</th>
-                  <th className="py-3 px-4">Situation</th>
+                  <th className="py-3 px-4 text-center">Situation</th>
                   <th className="py-3 px-4">Follow-up Status</th>
                   <th className="py-3 px-4">Next Task</th>
                   <th className="py-3 px-4">Due</th>

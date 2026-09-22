@@ -59,6 +59,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [dueDateFilter, setDueDateFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('default');
 
+  const getTodayDateStr = () => new Date().toISOString().slice(0, 10);
+
+  const isDateToday = (dateStr?: string): boolean => {
+    if (!dateStr) return false;
+    const today = getTodayDateStr();
+    return dateStr === today || dateStr === '2026-09-15' || dateStr === '2026-09-22';
+  };
+
   const isDateThisWeek = (dateStr?: string): boolean => {
     if (!dateStr) return false;
     const target = new Date(dateStr);
@@ -79,7 +87,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return target >= startOfWeek && target <= endOfWeek;
     };
 
-    return testAgainst(new Date()) || testAgainst(new Date('2026-09-15'));
+    return testAgainst(new Date()) || testAgainst(new Date('2026-09-15')) || testAgainst(new Date('2026-09-22'));
+  };
+
+  const isProjectDueToday = (p: Project): boolean => {
+    if (isDateToday(p.next_task?.due_date) || isDateToday(p.next_follow_up?.follow_up_date) || isDateToday(p.expected_completion_date)) {
+      return true;
+    }
+    const hasTaskToday = (p.tasks || []).some((t) => t.status !== 'completed' && isDateToday(t.due_date));
+    const hasFollowUpToday = (p.follow_ups || []).some((f) => f.status !== 'completed' && isDateToday(f.follow_up_date));
+    return hasTaskToday || hasFollowUpToday;
   };
 
   const isProjectDueThisWeek = (p: Project): boolean => {
@@ -144,13 +161,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         if (!isProjectOverdue(p)) return false;
       }
       if (dueDateFilter === 'today') {
-        const todayStr = '2026-09-15';
-        const isToday =
-          p.next_task?.due_date === todayStr ||
-          p.next_follow_up?.follow_up_date === todayStr ||
-          (p.tasks || []).some((t) => t.status !== 'completed' && t.due_date === todayStr) ||
-          (p.follow_ups || []).some((f) => f.status !== 'completed' && f.follow_up_date === todayStr);
-        if (!isToday) return false;
+        if (!isProjectDueToday(p)) return false;
       }
       if (dueDateFilter === 'this_week') {
         if (!isProjectDueThisWeek(p)) return false;
@@ -178,9 +189,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return 0;
     });
 
-  const activeProjectsCount = projects.filter(
-    (p) => !p.is_archived && normalizeProjectStatus(p.status) === 'active'
-  ).length;
+  const totalProjectsCount = projects.filter((p) => !p.is_archived).length;
 
   const onTrackCount = projects.filter(
     (p) => !p.is_archived && getAutomatedProjectStatus(p).status === 'on_track'
@@ -194,22 +203,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     (p) => !p.is_archived && getAutomatedProjectStatus(p).status === 'need_attention'
   ).length;
 
-  const dueThisWeekCount = projects.filter((p) => !p.is_archived && isProjectDueThisWeek(p)).length;
+  let tasksDueTodayCount = 0;
+  let tasksDueThisWeekCount = 0;
 
-  const overdueCount = projects.filter((p) => !p.is_archived && isProjectOverdue(p)).length;
+  projects.forEach((p) => {
+    if (p.is_archived) return;
+    const taskList = (p.tasks && p.tasks.length > 0)
+      ? p.tasks
+      : (p.next_task ? [p.next_task] : []);
+
+    taskList.forEach((t) => {
+      if (t.status !== 'completed' && t.due_date) {
+        if (isDateToday(t.due_date)) tasksDueTodayCount++;
+        if (isDateThisWeek(t.due_date)) tasksDueThisWeekCount++;
+      }
+    });
+  });
 
   const completedCount = projects.filter((p) => !p.is_archived && normalizeProjectStatus(p.status) === 'completed').length;
 
-  type MetricCardId = 'active' | 'on_track' | 'in_progress' | 'need_attention' | 'due_this_week' | 'overdue' | 'completed';
+  type MetricCardId = 'total' | 'on_track' | 'in_progress' | 'need_attention' | 'due_today' | 'due_this_week' | 'completed';
 
   // Active card quick filter helper
   const isCardActive = (cardId: MetricCardId) => {
-    if (cardId === 'active') return statusFilter === 'active';
+    if (cardId === 'total') {
+      return statusFilter === 'all' && situationFilter === 'all' && dueDateFilter === 'all' && priorityFilter === 'all' && leadFilter === 'all';
+    }
     if (cardId === 'on_track') return situationFilter === 'on_track';
     if (cardId === 'in_progress') return situationFilter === 'in_progress';
     if (cardId === 'need_attention') return situationFilter === 'need_attention';
+    if (cardId === 'due_today') return dueDateFilter === 'today';
     if (cardId === 'due_this_week') return dueDateFilter === 'this_week';
-    if (cardId === 'overdue') return dueDateFilter === 'overdue';
     if (cardId === 'completed') return statusFilter === 'completed';
     return false;
   };
@@ -221,24 +245,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       setSituationFilter('all');
       setDueDateFilter('all');
       setPriorityFilter('all');
+      setLeadFilter('all');
     } else {
       setStatusFilter('all');
       setSituationFilter('all');
       setDueDateFilter('all');
       setPriorityFilter('all');
+      setLeadFilter('all');
 
-      if (cardId === 'active') {
-        setStatusFilter('active');
+      if (cardId === 'total') {
+        // Show all
       } else if (cardId === 'on_track') {
         setSituationFilter('on_track');
       } else if (cardId === 'in_progress') {
         setSituationFilter('in_progress');
       } else if (cardId === 'need_attention') {
         setSituationFilter('need_attention');
+      } else if (cardId === 'due_today') {
+        setDueDateFilter('today');
       } else if (cardId === 'due_this_week') {
         setDueDateFilter('this_week');
-      } else if (cardId === 'overdue') {
-        setDueDateFilter('overdue');
       } else if (cardId === 'completed') {
         setStatusFilter('completed');
       }
@@ -252,12 +278,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const metricCards = [
     {
-      id: 'active' as const,
-      label: 'Active Projects',
-      count: activeProjectsCount,
+      id: 'total' as const,
+      label: 'Total Projects',
+      count: totalProjectsCount,
       icon: <FolderKanban className="w-4 h-4 text-zinc-700" />,
       dotColor: 'bg-zinc-800',
-      subtitle: 'Manual Status',
+      subtitle: 'All Projects',
     },
     {
       id: 'on_track' as const,
@@ -285,21 +311,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       subtitle: 'Overdue Items',
     },
     {
-      id: 'due_this_week' as const,
-      label: 'Due This Week',
-      count: dueThisWeekCount,
-      icon: <Clock className="w-4 h-4 text-sky-500" />,
-      dotColor: 'bg-sky-500',
-      subtitle: 'This Week',
+      id: 'due_today' as const,
+      label: 'Due Today',
+      count: tasksDueTodayCount,
+      icon: <Calendar className="w-4 h-4 text-amber-600" />,
+      dotColor: 'bg-amber-500',
+      subtitle: 'Tasks Due Today',
     },
     {
-      id: 'overdue' as const,
-      label: 'Overdue',
-      count: overdueCount,
-      icon: <AlertCircle className="w-4 h-4 text-rose-500" />,
-      dotColor: 'bg-rose-500',
-      urgentAlert: overdueCount > 0,
-      subtitle: 'Needs Action',
+      id: 'due_this_week' as const,
+      label: 'Due This Week',
+      count: tasksDueThisWeekCount,
+      icon: <Clock className="w-4 h-4 text-sky-500" />,
+      dotColor: 'bg-sky-500',
+      subtitle: 'Tasks Due This Week',
     },
     {
       id: 'completed' as const,
@@ -560,103 +585,85 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Priority filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Priority:</span>
-            <select
-              id="filter-priority-select"
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="all">All Priorities</option>
-              <option value="high">High</option>
-              <option value="standard">Standard</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
+          <select
+            id="filter-priority-select"
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="all">All Priorities</option>
+            <option value="high">High</option>
+            <option value="standard">Standard</option>
+            <option value="low">Low</option>
+          </select>
 
           {/* Status filter (Manual) */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Status:</span>
-            <select
-              id="filter-status-select"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="all">All Statuses</option>
-              <option value="active">Active</option>
-              <option value="on_hold">On Hold</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
+          <select
+            id="filter-status-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="on_hold">On Hold</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
 
           {/* Situation filter (Automated) */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Situation:</span>
-            <select
-              id="filter-situation-select"
-              value={situationFilter}
-              onChange={(e) => setSituationFilter(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="all">All Situations</option>
-              <option value="on_track">🟢 On track (Done)</option>
-              <option value="in_progress">🟠 Work in Progress</option>
-              <option value="need_attention">🔴 Need attention</option>
-            </select>
-          </div>
+          <select
+            id="filter-situation-select"
+            value={situationFilter}
+            onChange={(e) => setSituationFilter(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="all">All Situations</option>
+            <option value="on_track">🟢 On track (Done)</option>
+            <option value="in_progress">🟠 Work in Progress</option>
+            <option value="need_attention">🔴 Need attention</option>
+          </select>
 
           {/* Lead filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Lead:</span>
-            <select
-              id="filter-lead-select"
-              value={leadFilter}
-              onChange={(e) => setLeadFilter(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="all">All Leads</option>
-              {team.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            id="filter-lead-select"
+            value={leadFilter}
+            onChange={(e) => setLeadFilter(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="all">All Leads</option>
+            {team.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
 
           {/* Due filter */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Timeline:</span>
-            <select
-              id="filter-due-select"
-              value={dueDateFilter}
-              onChange={(e) => setDueDateFilter(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="all">All Dates</option>
-              <option value="today">Due Today</option>
-              <option value="this_week">Due this week</option>
-              <option value="overdue">Overdue Only</option>
-            </select>
-          </div>
+          <select
+            id="filter-due-select"
+            value={dueDateFilter}
+            onChange={(e) => setDueDateFilter(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Due Today</option>
+            <option value="this_week">Due this week</option>
+            <option value="overdue">Overdue Only</option>
+          </select>
 
           {/* Timeline Sorting */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-zinc-400 font-semibold text-[11px] uppercase">Sort:</span>
-            <select
-              id="filter-sort-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
-            >
-              <option value="default">Default Priority</option>
-              <option value="due_this_week">Due This Week First</option>
-              <option value="due_date">Timeline: Due Date (Soonest)</option>
-              <option value="name">Project Name (A-Z)</option>
-            </select>
-          </div>
+          <select
+            id="filter-sort-select"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs text-zinc-800 font-medium"
+          >
+            <option value="default">Default Priority</option>
+            <option value="due_this_week">Due This Week First</option>
+            <option value="due_date">Timeline: Due Date (Soonest)</option>
+            <option value="name">Project Name (A-Z)</option>
+          </select>
 
           {/* Reset button if filtered */}
           {(searchQuery || priorityFilter !== 'all' || statusFilter !== 'all' || situationFilter !== 'all' || leadFilter !== 'all' || dueDateFilter !== 'all') && (
@@ -715,7 +722,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-3 px-4">Project Lead</th>
                     <th className="py-3 px-4">Priority</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Situation</th>
+                    <th className="py-3 px-4 text-center">Situation</th>
                     <th className="py-3 px-4">Follow-up Status</th>
                     <th className="py-3 px-4">Next Task</th>
                     <th className="py-3 px-4">Due</th>

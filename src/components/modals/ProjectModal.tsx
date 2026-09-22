@@ -44,15 +44,15 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   const [teamMemberIds, setTeamMemberIds] = useState<string[]>(team[0]?.id ? [team[0]?.id] : []);
   const [priority, setPriority] = useState<Priority>('standard');
   const [status, setStatus] = useState<ProjectStatus>('active');
-  const [startDate, setStartDate] = useState('2026-09-15');
-  const [expectedDate, setExpectedDate] = useState('2026-12-31');
+  const [startDate, setStartDate] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
 
   // Initial task & followup for new projects
   const [initialTaskTitle, setInitialTaskTitle] = useState('');
-  const [initialTaskDue, setInitialTaskDue] = useState('2026-09-20');
+  const [initialTaskDue, setInitialTaskDue] = useState('');
   const [initialTaskAssignee, setInitialTaskAssignee] = useState(team[0]?.id || '');
   const [initialFollowUpNotes, setInitialFollowUpNotes] = useState('');
-  const [initialFollowUpDate, setInitialFollowUpDate] = useState('2026-09-18');
+  const [initialFollowUpDate, setInitialFollowUpDate] = useState('');
   const [initialFollowUpMethod, setInitialFollowUpMethod] = useState<'Phone' | 'In-Person' | 'WhatsApp' | 'Email'>('Phone');
 
   // Quick inline add client toggle
@@ -112,13 +112,13 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
         setTeamMemberIds(defaultLead ? [defaultLead] : []);
         setPriority('standard');
         setStatus('active');
-        setStartDate('2026-09-15');
-        setExpectedDate('2026-12-31');
+        setStartDate('');
+        setExpectedDate('');
         setInitialTaskTitle('');
-        setInitialTaskDue('2026-09-20');
+        setInitialTaskDue('');
         setInitialTaskAssignee(defaultLead);
         setInitialFollowUpNotes('');
-        setInitialFollowUpDate('2026-09-18');
+        setInitialFollowUpDate('');
         setInitialFollowUpMethod('Phone');
       }
       setShowNewClientForm(false);

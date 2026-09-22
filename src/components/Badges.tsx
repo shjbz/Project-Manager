@@ -136,9 +136,45 @@ export const AutomatedStatusBadge: React.FC<{
   };
   size?: 'xs' | 'sm' | 'md';
   showSublabel?: boolean;
+  iconOnly?: boolean;
   className?: string;
-}> = ({ project, size = 'sm', showSublabel = true, className = '' }) => {
+}> = ({ project, size = 'sm', showSublabel = true, iconOnly = false, className = '' }) => {
   const auto = getAutomatedProjectStatus(project);
+
+  if (iconOnly) {
+    if (auto.status === 'on_track') {
+      return (
+        <span
+          id={`auto-situation-circle-${auto.status}`}
+          title={`🟢 On track (Everything Done)${auto.reasons.length ? ': ' + auto.reasons.join(', ') : ''}`}
+          className={`inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100/90 border border-emerald-300 text-emerald-700 shadow-2xs hover:scale-110 transition cursor-help ${className}`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+        </span>
+      );
+    }
+    if (auto.status === 'in_progress') {
+      return (
+        <span
+          id={`auto-situation-circle-${auto.status}`}
+          title={`🟠 Work in Progress (Tasks/Follow-up Pending)${auto.reasons.length ? ': ' + auto.reasons.join(', ') : ''}`}
+          className={`inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100/90 border border-amber-300 text-amber-800 shadow-2xs hover:scale-110 transition cursor-help ${className}`}
+        >
+          <Clock className="w-3.5 h-3.5 text-amber-600 stroke-[2.5]" />
+        </span>
+      );
+    }
+    // Need attention: Red
+    return (
+      <span
+        id={`auto-situation-circle-${auto.status}`}
+        title={`🔴 Need attention (Overdue Task/Followup)${auto.reasons.length ? ': ' + auto.reasons.join(', ') : ''}`}
+        className={`inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-100/90 border border-rose-300 text-rose-700 shadow-2xs animate-pulse hover:scale-110 transition cursor-help ${className}`}
+      >
+        <AlertTriangle className="w-3.5 h-3.5 text-rose-600 stroke-[2.5]" />
+      </span>
+    );
+  }
 
   if (auto.status === 'on_track') {
     return (

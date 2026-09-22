@@ -1,7 +1,7 @@
 import React from 'react';
 import { Calendar, User, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Project } from '../types';
-import { getNextPendingTask, getProjectFollowUpStatus } from '../types';
+import { getNextPendingTask, getProjectFollowUpStatus, formatRelativeDue } from '../types';
 import { PriorityBadge, StatusBadge, AutomatedStatusBadge } from './Badges';
 
 interface ProjectCardProps {
@@ -14,8 +14,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
   const nextPendingTask = getNextPendingTask(project);
   const followUpStatus = getProjectFollowUpStatus(project);
 
-  const isDueOverdue = nextPendingTask?.due_date
-    ? nextPendingTask.due_date < todayStr
+  const targetDueDate = nextPendingTask?.due_date || project.expected_completion_date;
+  const dueInfo = formatRelativeDue(targetDueDate);
+
+  const isDueOverdue = targetDueDate
+    ? targetDueDate < todayStr
     : Boolean(project.is_overdue);
 
   return (
@@ -131,18 +134,25 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
             </span>
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-zinc-600 flex items-center gap-1.5">
+          <div className="flex items-center justify-between text-zinc-600">
+            <span className="text-zinc-600 flex items-center gap-1.5 shrink-0">
               <Calendar className="w-3.5 h-3.5 text-zinc-500" />
               <span>Due:</span>
             </span>
             <span
-              className={`font-semibold ${
-                isDueOverdue ? 'text-rose-600 flex items-center gap-1 font-bold' : 'text-zinc-800'
+              className={`font-semibold truncate text-right text-xs ${
+                isDueOverdue ? 'text-rose-600 flex items-center justify-end gap-1 font-bold' : 'text-zinc-800'
               }`}
+              title={dueInfo ? `${dueInfo.relativeText} (${dueInfo.dateStr})` : '—'}
             >
-              {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500" />}
-              {nextPendingTask?.due_date || project.expected_completion_date || '—'}
+              {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+              {dueInfo ? (
+                <span>
+                  {dueInfo.relativeText} <span className="text-zinc-400 font-normal">({dueInfo.dateStr})</span>
+                </span>
+              ) : (
+                '—'
+              )}
             </span>
           </div>
         </div>
@@ -168,8 +178,11 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
   const nextPendingTask = getNextPendingTask(project);
   const followUpStatus = getProjectFollowUpStatus(project);
 
-  const isDueOverdue = nextPendingTask?.due_date
-    ? nextPendingTask.due_date < todayStr
+  const targetDueDate = nextPendingTask?.due_date || project.expected_completion_date;
+  const dueInfo = formatRelativeDue(targetDueDate);
+
+  const isDueOverdue = targetDueDate
+    ? targetDueDate < todayStr
     : Boolean(project.is_overdue);
 
   return (
@@ -212,9 +225,9 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
         <StatusBadge status={project.status} size="sm" />
       </td>
 
-      {/* Situation (Automated Green/Orange/Red) */}
-      <td className="py-3 px-4">
-        <AutomatedStatusBadge project={project} size="sm" showSublabel={true} />
+      {/* Situation (Automated Green/Orange/Red Circle Icon) */}
+      <td className="py-3 px-4 text-center whitespace-nowrap">
+        <AutomatedStatusBadge project={project} iconOnly={true} />
       </td>
 
       {/* Follow-up Status: Last and Next */}
@@ -268,21 +281,26 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
         {nextPendingTask?.title || <span className="text-zinc-400 italic">None</span>}
       </td>
 
-      {/* Due Date: next task due date if pending tasks exist, otherwise expected completion */}
+      {/* Due Date: Two rows: Relative time (Day/Week/Month) and Date */}
       <td className="py-3 px-4 whitespace-nowrap">
-        {nextPendingTask?.due_date ? (
-          <span
-            className={`font-semibold inline-flex items-center gap-1.5 ${
-              isDueOverdue ? 'text-rose-600 font-bold' : 'text-zinc-800'
-            }`}
-            title={`Next Task Due: ${nextPendingTask.title || 'Task'} (${nextPendingTask.due_date})`}
-          >
-            {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
-            <span>{nextPendingTask.due_date}</span>
-          </span>
+        {dueInfo ? (
+          <div className="flex flex-col leading-tight">
+            <span
+              className={`font-semibold inline-flex items-center gap-1 text-xs ${
+                isDueOverdue ? 'text-rose-600 font-bold' : dueInfo.isToday ? 'text-amber-700 font-bold' : 'text-zinc-900'
+              }`}
+              title={nextPendingTask ? `Next Task: ${nextPendingTask.title || 'Task'} (${dueInfo.dateStr})` : `Target Date: ${dueInfo.dateStr}`}
+            >
+              {isDueOverdue && <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />}
+              <span>{dueInfo.relativeText}</span>
+            </span>
+            <span className="text-[11px] text-zinc-500 font-medium tracking-tight">
+              {dueInfo.dateStr}
+            </span>
+          </div>
         ) : (
-          <span className="text-zinc-500 font-medium" title="Target completion date">
-            {project.expected_completion_date || '—'}
+          <span className="text-zinc-400 font-medium italic">
+            —
           </span>
         )}
       </td>
