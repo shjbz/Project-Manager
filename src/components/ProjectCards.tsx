@@ -196,11 +196,16 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
       {/* Project name & type */}
       <td className="py-3 px-4">
         <div className="font-semibold text-sm text-zinc-900">{project.project_name}</div>
-        <div className="text-[11px] text-zinc-500 font-normal">{project.project_type}</div>
+        <div className="text-[11px] text-zinc-500 font-normal">
+          {project.project_type}
+          {project.client?.name && (
+            <span className="md:hidden text-zinc-400"> · {project.client.name}</span>
+          )}
+        </div>
       </td>
 
       {/* Client */}
-      <td className="py-3 px-4 font-medium text-zinc-800">
+      <td className="py-3 px-4 font-medium text-zinc-800 hidden md:table-cell">
         <div>{project.client?.name || '—'}</div>
         {project.client?.company && (
           <div className="text-[11px] text-zinc-400 font-normal">{project.client.company}</div>
@@ -208,7 +213,7 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
       </td>
 
       {/* Project Lead */}
-      <td className="py-3 px-4 text-zinc-700 font-medium">
+      <td className="py-3 px-4 text-zinc-700 font-medium hidden sm:table-cell">
         <div className="flex items-center gap-1.5">
           <User className="w-3.5 h-3.5 text-zinc-400" />
           <span>{project.project_lead?.name || '—'}</span>
@@ -216,7 +221,7 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
       </td>
 
       {/* Priority */}
-      <td className="py-3 px-4">
+      <td className="py-3 px-4 hidden lg:table-cell">
         <PriorityBadge priority={project.priority} size="sm" />
       </td>
 
@@ -231,7 +236,7 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
       </td>
 
       {/* Follow-up Status: Last and Next */}
-      <td className="py-3 px-4 min-w-[200px] max-w-[280px]">
+      <td className="py-3 px-4 min-w-[200px] max-w-[280px] hidden md:table-cell">
         <div className="text-[11px] leading-snug space-y-0.5">
           <div
             className="flex items-baseline gap-1.5 truncate text-zinc-700"
@@ -277,7 +282,7 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
       </td>
 
       {/* Next Task */}
-      <td className="py-3 px-4 text-zinc-800 max-w-xs truncate font-medium">
+      <td className="py-3 px-4 text-zinc-800 max-w-xs truncate font-medium hidden lg:table-cell">
         {nextPendingTask?.title || <span className="text-zinc-400 italic">None</span>}
       </td>
 

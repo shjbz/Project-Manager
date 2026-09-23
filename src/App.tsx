@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Menu, Plus, Search, Building2 } from 'lucide-react';
 import { api } from './api';
 import type { Project, TeamMember, Client, DashboardStats, Task, FollowUp, CompanySettings, GanttChart, GanttTask } from './types';
 import { AuthGate } from './components/AuthGate';
@@ -34,6 +35,7 @@ export default function App() {
   // Navigation State
   const [currentNav, setCurrentNav] = useState<NavTab>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Global Search Modal
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -271,8 +273,14 @@ export default function App() {
     const overdueTasks = liveUpcomingTasks.filter((t) => t.is_overdue);
     const overdueFUs = liveFollowUpsAttention.filter((f) => f.is_overdue);
     const combined = [
-      ...overdueTasks.map((t) => ({ ...t, type: 'task' as const })),
-      ...overdueFUs.map((f) => ({ ...f, type: 'follow_up' as const, title: f.notes || `${f.method} follow-up` })),
+      ...overdueTasks.map((t) => ({ ...t, type: 'task' as const, item_type: 'Task' as const })),
+      ...overdueFUs.map((f) => ({
+        ...f,
+        type: 'follow_up' as const,
+        item_type: 'Follow-up' as const,
+        due_date: f.follow_up_date,
+        title: f.notes ? `${f.method ? `[${f.method}] ` : ''}${f.notes}` : `${f.method || 'Phone'} follow-up with ${f.client_name || 'Client'}`,
+      })),
     ];
     return combined.length > 0 ? combined : overdueItems;
   }, [liveUpcomingTasks, liveFollowUpsAttention, overdueItems]);
@@ -583,7 +591,58 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-screen w-screen overflow-hidden bg-zinc-50 text-zinc-900 flex font-sans antialiased">
+      <div className="h-screen w-screen overflow-hidden bg-zinc-50 text-zinc-900 flex flex-col md:flex-row font-sans antialiased">
+        {/* Mobile Header Bar (Only visible on screens < md) */}
+        <header className="md:hidden bg-zinc-900 text-white border-b border-zinc-800 px-3.5 py-2.5 flex items-center justify-between shrink-0 z-40 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open Navigation Menu"
+              className="p-1.5 -ml-1 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            {company?.logo_url || company?.company_logo ? (
+              <img
+                src={company.logo_url || company.company_logo}
+                alt={company?.company_name || 'Company Logo'}
+                className="w-7 h-7 rounded-md object-contain bg-zinc-800 border border-zinc-700 p-0.5 shrink-0"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-md bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4 text-zinc-200" />
+              </div>
+            )}
+            <span className="font-bold text-xs text-white tracking-tight truncate max-w-[150px]">
+              {company?.company_name || 'Falcon Construction'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsSearchOpen(true)}
+              aria-label="Quick Search"
+              className="p-1.5 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingProject(null);
+                setProjectModalOpen(true);
+              }}
+              aria-label="New Project"
+              className="px-2.5 py-1.5 bg-white text-zinc-950 font-bold text-xs rounded-lg hover:bg-zinc-100 transition shadow-xs flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Project</span>
+            </button>
+          </div>
+        </header>
+
         {/* Sidebar Navigation */}
         <Navigation
           currentNav={currentNav}
@@ -591,39 +650,47 @@ export default function App() {
           onNavigate={(nav) => {
             setCurrentNav(nav);
             setSelectedProjectId(null); // Reset detail view when clicking nav item
+            setMobileMenuOpen(false);
           }}
           onTabChange={(nav) => {
             setCurrentNav(nav);
             setSelectedProjectId(null);
+            setMobileMenuOpen(false);
           }}
           company={company}
           onOpenNewProject={() => {
             setEditingProject(null);
             setProjectModalOpen(true);
+            setMobileMenuOpen(false);
           }}
           onOpenNewFollowUp={() => {
             setEditingFollowUp(null);
             setFollowUpTargetProjectId(selectedProjectId || undefined);
             setFollowUpModalOpen(true);
+            setMobileMenuOpen(false);
           }}
           onOpenNewTask={() => {
             setEditingTask(null);
             setTaskTargetProjectId(selectedProjectId || undefined);
             setTaskModalOpen(true);
+            setMobileMenuOpen(false);
           }}
           onOpenNewUpdate={() => {
             setUpdateTargetProjectId(selectedProjectId || undefined);
             setUpdateModalOpen(true);
+            setMobileMenuOpen(false);
           }}
           onLogout={handleLogout}
           urgentCount={stats.urgentProjects || 0}
           overdueCount={stats.overdue || 0}
           archivedCount={projects.filter((p) => p.is_archived).length}
+          isOpenOnMobile={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
         />
 
         {/* Main Content Area */}
         <main className="flex-1 min-w-0 h-full overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+          <div className="p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             {selectedProject ? (
               /* Project Detail View */
               <ProjectDetailView

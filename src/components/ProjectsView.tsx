@@ -369,13 +369,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 text-[11px] font-bold uppercase tracking-wider text-zinc-600">
                   <th className="py-3 px-4">Project</th>
-                  <th className="py-3 px-4">Client</th>
-                  <th className="py-3 px-4">Project Lead</th>
-                  <th className="py-3 px-4">Priority</th>
+                  <th className="py-3 px-4 hidden md:table-cell">Client</th>
+                  <th className="py-3 px-4 hidden sm:table-cell">Project Lead</th>
+                  <th className="py-3 px-4 hidden lg:table-cell">Priority</th>
                   <th className="py-3 px-4">Project Status</th>
                   <th className="py-3 px-4 text-center">Situation</th>
-                  <th className="py-3 px-4">Follow-up Status</th>
-                  <th className="py-3 px-4">Next Task</th>
+                  <th className="py-3 px-4 hidden md:table-cell">Follow-up Status</th>
+                  <th className="py-3 px-4 hidden lg:table-cell">Next Task</th>
                   <th className="py-3 px-4">Due</th>
                 </tr>
               </thead>

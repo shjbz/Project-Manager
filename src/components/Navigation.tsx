@@ -14,6 +14,7 @@ import {
   Archive,
   Building2,
   LogOut,
+  X,
 } from 'lucide-react';
 import type { CompanySettings } from '../types';
 
@@ -33,6 +34,8 @@ interface NavigationProps {
   urgentCount?: number;
   overdueCount?: number;
   archivedCount?: number;
+  isOpenOnMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -49,10 +52,13 @@ export const Navigation: React.FC<NavigationProps> = ({
   urgentCount = 0,
   overdueCount = 0,
   archivedCount = 0,
+  isOpenOnMobile = false,
+  onCloseMobile,
 }) => {
   const activeTab = currentNav || currentTab || 'dashboard';
 
   const handleNavClick = (tab: NavTab) => {
+    if (onCloseMobile) onCloseMobile();
     if (onTabChange) onTabChange(tab);
     if (onNavigate) onNavigate(tab);
   };
@@ -87,42 +93,16 @@ export const Navigation: React.FC<NavigationProps> = ({
 
   const logoSrc = company?.logo_url || company?.company_logo;
 
-  return (
-    <aside
-      id="main-sidebar"
-      className="w-64 bg-zinc-900 text-zinc-300 flex flex-col shrink-0 border-r border-zinc-800 h-screen sticky top-0 overflow-y-auto select-none z-30"
-    >
-      {/* Brand & Company Logo */}
-      <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
-        {logoSrc ? (
-          <img
-            src={logoSrc}
-            alt={company?.company_name || 'Company Logo'}
-            className="w-10 h-10 rounded-lg object-contain bg-zinc-800 border border-zinc-700 p-0.5 shrink-0"
-          />
-        ) : (
-          <div className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white shrink-0 shadow-xs">
-            <Building2 className="w-5 h-5 text-zinc-100" />
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <h1
-            className="text-xs font-semibold uppercase tracking-wider text-zinc-400 truncate"
-            title={company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
-          >
-            {company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
-          </h1>
-          <p className="text-sm font-bold text-white tracking-tight leading-tight truncate">
-            {company?.tagline || 'Project Command'}
-          </p>
-        </div>
-      </div>
-
+  const renderInnerBody = () => (
+    <>
       {/* Quick Action Buttons */}
       <div className="p-3 space-y-2 border-b border-zinc-800/80">
         <button
           id="sidebar-new-project-btn"
-          onClick={() => onOpenNewProject && onOpenNewProject()}
+          onClick={() => {
+            if (onCloseMobile) onCloseMobile();
+            if (onOpenNewProject) onOpenNewProject();
+          }}
           className="w-full flex items-center justify-center gap-2 bg-zinc-100 hover:bg-white text-zinc-950 px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -132,7 +112,10 @@ export const Navigation: React.FC<NavigationProps> = ({
         <div className="space-y-1.5 pt-1">
           <button
             id="sidebar-new-followup-btn"
-            onClick={() => onOpenNewFollowUp && onOpenNewFollowUp()}
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              if (onOpenNewFollowUp) onOpenNewFollowUp();
+            }}
             className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
           >
             <CalendarCheck className="w-3.5 h-3.5 text-amber-400" />
@@ -141,7 +124,10 @@ export const Navigation: React.FC<NavigationProps> = ({
 
           <button
             id="sidebar-new-task-btn"
-            onClick={() => onOpenNewTask && onOpenNewTask()}
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              if (onOpenNewTask) onOpenNewTask();
+            }}
             className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
           >
             <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
@@ -150,7 +136,10 @@ export const Navigation: React.FC<NavigationProps> = ({
 
           <button
             id="sidebar-new-update-btn"
-            onClick={() => onOpenNewUpdate && onOpenNewUpdate()}
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              if (onOpenNewUpdate) onOpenNewUpdate();
+            }}
             className="w-full flex items-center justify-start gap-2 bg-zinc-800/80 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
           >
             <History className="w-3.5 h-3.5 text-emerald-400" />
@@ -209,7 +198,10 @@ export const Navigation: React.FC<NavigationProps> = ({
         {onLogout && (
           <button
             id="nav-link-logout"
-            onClick={onLogout}
+            onClick={() => {
+              if (onCloseMobile) onCloseMobile();
+              onLogout();
+            }}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
@@ -222,6 +214,101 @@ export const Navigation: React.FC<NavigationProps> = ({
           <span className="w-2 h-2 rounded-full bg-emerald-500" title="Workspace Connected" />
         </div>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop / Tablet Sidebar (Untouched for PC/Tablet) */}
+      <aside
+        id="main-sidebar"
+        className="hidden md:flex w-64 bg-zinc-900 text-zinc-300 flex-col shrink-0 border-r border-zinc-800 h-screen sticky top-0 overflow-y-auto select-none z-30"
+      >
+        {/* Brand & Company Logo */}
+        <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
+          {logoSrc ? (
+            <img
+              src={logoSrc}
+              alt={company?.company_name || 'Company Logo'}
+              className="w-10 h-10 rounded-lg object-contain bg-zinc-800 border border-zinc-700 p-0.5 shrink-0"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white shrink-0 shadow-xs">
+              <Building2 className="w-5 h-5 text-zinc-100" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h1
+              className="text-xs font-semibold uppercase tracking-wider text-zinc-400 truncate"
+              title={company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
+            >
+              {company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
+            </h1>
+            <p className="text-sm font-bold text-white tracking-tight leading-tight truncate">
+              {company?.tagline || 'Project Command'}
+            </p>
+          </div>
+        </div>
+
+        {renderInnerBody()}
+      </aside>
+
+      {/* Mobile Drawer (Visible when hamburger is opened) */}
+      {isOpenOnMobile && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={onCloseMobile}
+            aria-hidden="true"
+          />
+
+          {/* Drawer Sheet */}
+          <aside
+            id="mobile-sidebar-drawer"
+            className="relative w-72 max-w-[85vw] bg-zinc-900 text-zinc-300 flex flex-col h-full overflow-y-auto shadow-2xl border-r border-zinc-800 z-10 animate-in slide-in-from-left duration-200"
+          >
+            {/* Header with Close (X) button */}
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                {logoSrc ? (
+                  <img
+                    src={logoSrc}
+                    alt={company?.company_name || 'Company Logo'}
+                    className="w-9 h-9 rounded-lg object-contain bg-zinc-800 border border-zinc-700 p-0.5 shrink-0"
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white shrink-0 shadow-xs">
+                    <Building2 className="w-4 h-4 text-zinc-100" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h1
+                    className="text-xs font-semibold uppercase tracking-wider text-zinc-400 truncate"
+                    title={company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
+                  >
+                    {company?.company_name || 'FALCON ENGINEERING & CONSTRUCTION'}
+                  </h1>
+                  <p className="text-sm font-bold text-white tracking-tight leading-tight truncate">
+                    {company?.tagline || 'Project Command'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                aria-label="Close navigation menu"
+                className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition cursor-pointer ml-2 shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {renderInnerBody()}
+          </aside>
+        </div>
+      )}
+    </>
   );
 };

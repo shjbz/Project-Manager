@@ -413,7 +413,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
       </div>
 
       {/* Tabs Navigation (Spec #48: Overview, Tasks, Follow-ups, Activity, Team) */}
-      <div className="border-b border-zinc-200 flex items-center gap-6 text-xs font-semibold">
+      <div className="border-b border-zinc-200 flex items-center gap-4 sm:gap-6 text-xs font-semibold overflow-x-auto whitespace-nowrap pb-px">
         {(
           [
             { id: 'overview', label: 'Overview' },

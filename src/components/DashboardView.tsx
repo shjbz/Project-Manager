@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FolderKanban,
   CalendarCheck,
@@ -19,7 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import type { Project, TeamMember, Client, DashboardStats, Priority, ProjectStatus } from '../types';
-import { getAutomatedProjectStatus, normalizeProjectStatus, getNextPendingTask } from '../types';
+import { getAutomatedProjectStatus, normalizeProjectStatus, getNextPendingTask, formatRelativeDue } from '../types';
 import { ProjectCard, ProjectRow } from './ProjectCards';
 
 interface DashboardViewProps {
@@ -221,6 +221,78 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   const completedCount = projects.filter((p) => !p.is_archived && normalizeProjectStatus(p.status) === 'completed').length;
+
+  const computedOverdueItems = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const list: Array<{
+      id: string;
+      project_id: string;
+      project_name: string;
+      title: string;
+      due_date: string;
+      item_type: 'Task' | 'Follow-up';
+      assigned_name?: string;
+      priority?: string;
+    }> = [];
+
+    projects.forEach((p) => {
+      if (p.is_archived) return;
+
+      // Overdue tasks
+      (p.tasks || []).forEach((t) => {
+        if (t.status !== 'completed' && t.due_date && t.due_date < todayStr) {
+          const assignee = team.find((m) => m.id === t.assigned_to) || p.project_lead;
+          list.push({
+            id: t.id,
+            project_id: p.id,
+            project_name: p.project_name,
+            title: t.title,
+            due_date: t.due_date,
+            item_type: 'Task',
+            assigned_name: assignee?.name,
+            priority: t.priority,
+          });
+        }
+      });
+
+      // Overdue follow-ups
+      (p.follow_ups || []).forEach((fu) => {
+        const fuDate = fu.follow_up_date || (fu as any).date || '';
+        if (fu.status !== 'completed' && fuDate && fuDate < todayStr) {
+          const creator = team.find((m) => m.id === fu.created_by) || p.project_lead;
+          const clientName = p.client?.name || clients.find((c) => c.id === p.client_id)?.name || 'Client';
+          list.push({
+            id: fu.id,
+            project_id: p.id,
+            project_name: p.project_name,
+            title: fu.notes ? `${fu.method ? `[${fu.method}] ` : ''}${fu.notes}` : `${fu.method || 'Phone'} follow-up with ${clientName}`,
+            due_date: fuDate,
+            item_type: 'Follow-up',
+            assigned_name: creator?.name,
+          });
+        }
+      });
+    });
+
+    if (list.length === 0 && overdueItems && overdueItems.length > 0) {
+      return overdueItems.map((item) => ({
+        id: item.id,
+        project_id: item.project_id,
+        project_name: item.project_name,
+        title: item.title || item.notes || 'Overdue item',
+        due_date: item.due_date || item.follow_up_date || '',
+        item_type: ((item.type === 'follow_up' || item.follow_up_date) ? 'Follow-up' : 'Task') as 'Task' | 'Follow-up',
+        assigned_name: item.assigned_member?.name || item.creator_member?.name,
+        priority: item.priority,
+      }));
+    }
+
+    list.sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
+    return list;
+  }, [projects, team, clients, overdueItems]);
+
+  const overdueTasksCount = computedOverdueItems.filter((i) => i.item_type === 'Task').length;
+  const overdueFollowUpsCount = computedOverdueItems.filter((i) => i.item_type === 'Follow-up').length;
 
   type MetricCardId = 'total' | 'on_track' | 'in_progress' | 'need_attention' | 'due_today' | 'due_this_week' | 'completed';
 
@@ -456,39 +528,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Overdue Critical Warning Section (Spec #33) - Shown if there are overdue items */}
-      {overdueItems && overdueItems.length > 0 && (
+      {/* 4. Overdue Critical Warning Section - Tasks & Follow-ups */}
+      {computedOverdueItems.length > 0 && (
         <div
           id="dashboard-overdue-banner"
-          className="bg-rose-50/80 border border-rose-200 rounded-xl p-4 shadow-xs"
+          className="bg-rose-50/80 border border-rose-200 rounded-xl p-3.5 sm:p-4 shadow-xs"
         >
-          <div className="flex items-center gap-2 text-rose-800 text-xs font-bold uppercase tracking-wider mb-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-            <span>Overdue Items Requiring Immediate Attention ({overdueItems.length})</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-rose-900 text-xs font-bold uppercase tracking-wider mb-2.5">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>Overdue Tasks & Follow-ups Requiring Immediate Attention</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+              <span className="px-2 py-0.5 rounded-md bg-rose-200/80 text-rose-900 border border-rose-300/60">
+                {overdueTasksCount} {overdueTasksCount === 1 ? 'Task' : 'Tasks'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 border border-amber-300/60">
+                {overdueFollowUpsCount} {overdueFollowUpsCount === 1 ? 'Follow-up' : 'Follow-ups'}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-            {overdueItems.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => onSelectProject(item.project_id)}
-                className="bg-white p-3 rounded-lg border border-rose-200 hover:border-rose-300 transition cursor-pointer shadow-2xs group"
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-zinc-900 group-hover:text-rose-900">
-                    {item.project_name}
-                  </span>
-                  <span className="text-[11px] font-bold text-rose-600 bg-rose-100 px-1.5 py-0.5 rounded">
-                    Due: {item.due_date}
-                  </span>
-                </div>
-                <div className="text-xs text-zinc-700 mt-1 line-clamp-1">{item.title}</div>
-                {item.assigned_member && (
-                  <div className="text-[11px] text-zinc-500 mt-1">
-                    Assigned: {item.assigned_member.name}
+            {computedOverdueItems.map((item) => {
+              const relativeDue = formatRelativeDue(item.due_date);
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => onSelectProject(item.project_id)}
+                  className="bg-white p-3 sm:p-3.5 rounded-xl border border-rose-200 hover:border-rose-400 transition cursor-pointer shadow-xs hover:shadow-md group flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span
+                        className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded tracking-wider ${
+                          item.item_type === 'Task'
+                            ? 'bg-zinc-100 text-zinc-700 border border-zinc-200'
+                            : 'bg-amber-100 text-amber-900 border border-amber-300'
+                        }`}
+                      >
+                        {item.item_type}
+                      </span>
+                      {relativeDue ? (
+                        <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 shrink-0">
+                          <AlertCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                          <span>{relativeDue.relativeText}</span>
+                          <span className="text-zinc-500 font-normal">({relativeDue.dateStr})</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                          Due: {item.due_date || 'Past Due'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-bold text-xs text-zinc-900 group-hover:text-rose-900 transition-colors line-clamp-1">
+                      {item.project_name}
+                    </div>
+                    <div className="text-xs text-zinc-700 mt-1 line-clamp-2 leading-relaxed">
+                      {item.title}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {item.assigned_name && (
+                    <div className="text-[11px] text-zinc-500 mt-2.5 pt-2 border-t border-zinc-100 flex items-center justify-between">
+                      <span className="text-zinc-400">Assigned:</span>
+                      <span className="font-medium text-zinc-700 truncate">{item.assigned_name}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -718,13 +826,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200 text-[11px] font-bold uppercase tracking-wider text-zinc-600">
                     <th className="py-3 px-4">Project</th>
-                    <th className="py-3 px-4">Client</th>
-                    <th className="py-3 px-4">Project Lead</th>
-                    <th className="py-3 px-4">Priority</th>
+                    <th className="py-3 px-4 hidden md:table-cell">Client</th>
+                    <th className="py-3 px-4 hidden sm:table-cell">Project Lead</th>
+                    <th className="py-3 px-4 hidden lg:table-cell">Priority</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-center">Situation</th>
-                    <th className="py-3 px-4">Follow-up Status</th>
-                    <th className="py-3 px-4">Next Task</th>
+                    <th className="py-3 px-4 hidden md:table-cell">Follow-up Status</th>
+                    <th className="py-3 px-4 hidden lg:table-cell">Next Task</th>
                     <th className="py-3 px-4">Due</th>
                   </tr>
                 </thead>
