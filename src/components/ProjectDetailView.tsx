@@ -337,7 +337,11 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
             <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center justify-between">
               <span>Follow-up Status</span>
               {nextPendingFollowUp && (
-                <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                  nextPendingFollowUp.follow_up_date && nextPendingFollowUp.follow_up_date < new Date().toISOString().slice(0, 10)
+                    ? 'text-rose-700 bg-rose-50 border-rose-300 font-bold'
+                    : 'text-amber-700 bg-amber-50 border-amber-200'
+                }`}>
                   Next: {nextPendingFollowUp.follow_up_date}
                 </span>
               )}
@@ -373,14 +377,28 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 
               <div className="pt-1.5 border-t border-zinc-200/60">
                 <div className="flex items-center gap-1.5 text-zinc-700">
-                  <span className="text-zinc-400 font-semibold">Next:</span>{' '}
+                  <span className={`font-semibold ${
+                    nextPendingFollowUp?.follow_up_date && nextPendingFollowUp.follow_up_date < new Date().toISOString().slice(0, 10)
+                      ? 'text-rose-700 font-bold'
+                      : 'text-zinc-400'
+                  }`}>Next:</span>{' '}
                   {nextPendingFollowUp ? (
                     <>
-                      <span className="font-semibold text-zinc-900">
+                      <span className={`font-semibold ${
+                        nextPendingFollowUp.follow_up_date && nextPendingFollowUp.follow_up_date < new Date().toISOString().slice(0, 10)
+                          ? 'text-rose-700 font-bold'
+                          : 'text-zinc-900'
+                      }`}>
                         {nextPendingFollowUp.follow_up_date}
                       </span>
-                      <span className="text-[10px] font-medium text-amber-800 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                        Pending
+                      <span className={`text-[10px] font-medium px-1.5 py-0.2 rounded border ${
+                        nextPendingFollowUp.follow_up_date && nextPendingFollowUp.follow_up_date < new Date().toISOString().slice(0, 10)
+                          ? 'text-rose-700 bg-rose-50 border-rose-300 font-bold'
+                          : 'text-amber-800 bg-amber-50 border-amber-200'
+                      }`}>
+                        {nextPendingFollowUp.follow_up_date && nextPendingFollowUp.follow_up_date < new Date().toISOString().slice(0, 10)
+                          ? 'Overdue'
+                          : 'Pending'}
                       </span>
                       {nextPendingFollowUp.method && (
                         <span className="text-[11px] text-zinc-500">

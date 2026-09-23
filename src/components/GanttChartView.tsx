@@ -409,7 +409,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
               className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Add New</span>
+              <span>Add New</span>
             </button>
           </div>
         </div>
@@ -429,7 +429,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Create First Gantt Chart</span>
+              <span>Create First Gantt Chart</span>
             </button>
           </div>
         ) : (
@@ -758,7 +758,7 @@ export const GanttChartView: React.FC<GanttChartViewProps> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Task</span>
+            <span>Add Task</span>
           </button>
 
           {/* Edit current chart icon beside delete icon */}

@@ -446,12 +446,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* 2. Merged Interactive Metric Summary Cards */}
       <div>
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-zinc-400" />
-            <span>Interactive Operational Pulse · Click any card to filter projects below</span>
-          </div>
-          {(statusFilter !== 'all' || situationFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all') && (
+        {(statusFilter !== 'all' || situationFilter !== 'all' || dueDateFilter !== 'all' || priorityFilter !== 'all') && (
+          <div className="flex items-center justify-end mb-2">
             <button
               onClick={() => {
                 setStatusFilter('all');
@@ -464,8 +460,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <X className="w-3 h-3" />
               <span>Reset Filters</span>
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
           {metricCards.map((card) => {

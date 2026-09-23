@@ -194,6 +194,7 @@ export interface ProjectFollowUpStatus {
   lastDescription: string | null;
   nextDate: string | null;
   nextDescription: string | null;
+  isNextOverdue?: boolean;
 }
 
 /**
@@ -284,11 +285,15 @@ export function getProjectFollowUpStatus(project: {
     lastItem = null;
   }
 
+  const nextDate = nextItem?.follow_up_date || null;
+  const isNextOverdue = Boolean(nextDate && nextDate < todayStr && nextItem?.status !== 'completed');
+
   return {
     lastDate: lastItem?.follow_up_date || null,
     lastDescription: lastItem?.notes?.trim() || null,
-    nextDate: nextItem?.follow_up_date || null,
+    nextDate,
     nextDescription: nextItem?.notes?.trim() || null,
+    isNextOverdue,
   };
 }
 
@@ -335,7 +340,7 @@ export function formatRelativeDue(targetDateStr?: string, referenceDateStr?: str
   } else if (diffDays === 1) {
     relativeText = 'Tomorrow';
   } else if (diffDays === -1) {
-    relativeText = '1 Day Overdue';
+    relativeText = '1 Day';
   } else if (diffDays > 1) {
     if (diffDays < 7) {
       relativeText = `${diffDays} Days`;
@@ -349,13 +354,13 @@ export function formatRelativeDue(targetDateStr?: string, referenceDateStr?: str
   } else {
     const absDays = Math.abs(diffDays);
     if (absDays < 7) {
-      relativeText = `${absDays} Days Overdue`;
+      relativeText = `${absDays} ${absDays === 1 ? 'Day' : 'Days'}`;
     } else if (absDays < 30) {
       const weeks = Math.round(absDays / 7);
-      relativeText = `${weeks} ${weeks === 1 ? 'Week' : 'Weeks'} Overdue`;
+      relativeText = weeks === 1 ? '1 Week' : `${weeks} Weeks`;
     } else {
       const months = Math.round(absDays / 30);
-      relativeText = `${months} ${months === 1 ? 'Month' : 'Months'} Overdue`;
+      relativeText = months === 1 ? '1 Month' : `${months} Months`;
     }
   }
 

@@ -99,19 +99,41 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick }) =>
                 )}
               </div>
               <div
-                className="flex items-baseline gap-1.5 truncate text-zinc-700"
+                className={`flex items-baseline gap-1.5 truncate ${
+                  followUpStatus.isNextOverdue
+                    ? 'text-rose-700 bg-rose-50/90 -mx-1 px-1 py-0.5 rounded border border-rose-200/80'
+                    : 'text-zinc-700'
+                }`}
                 title={
                   followUpStatus.nextDate
-                    ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}`
+                    ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}${followUpStatus.isNextOverdue ? ' (Overdue)' : ''}`
                     : 'Next: None'
                 }
               >
-                <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Next:</span>
+                <span
+                  className={`font-bold text-[10px] uppercase tracking-wide shrink-0 ${
+                    followUpStatus.isNextOverdue ? 'text-rose-700 font-extrabold' : 'text-zinc-500'
+                  }`}
+                >
+                  Next:
+                </span>
                 {followUpStatus.nextDate ? (
                   <span className="truncate">
-                    <span className="font-semibold text-amber-800">{followUpStatus.nextDate}</span>
+                    <span
+                      className={`font-semibold ${
+                        followUpStatus.isNextOverdue ? 'text-rose-700 font-bold' : 'text-amber-800'
+                      }`}
+                    >
+                      {followUpStatus.nextDate}
+                    </span>
                     {followUpStatus.nextDescription && (
-                      <span className="text-zinc-500 font-normal"> - {followUpStatus.nextDescription}</span>
+                      <span
+                        className={`${
+                          followUpStatus.isNextOverdue ? 'text-rose-600' : 'text-zinc-500'
+                        } font-normal`}
+                      >
+                        {' '} - {followUpStatus.nextDescription}
+                      </span>
                     )}
                   </span>
                 ) : (
@@ -259,19 +281,41 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
             )}
           </div>
           <div
-            className="flex items-baseline gap-1.5 truncate text-zinc-700"
+            className={`flex items-baseline gap-1.5 truncate ${
+              followUpStatus.isNextOverdue
+                ? 'text-rose-700 bg-rose-50/90 -mx-1 px-1 py-0.5 rounded border border-rose-200/80'
+                : 'text-zinc-700'
+            }`}
             title={
               followUpStatus.nextDate
-                ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}`
+                ? `Next: ${followUpStatus.nextDate}${followUpStatus.nextDescription ? ` - ${followUpStatus.nextDescription}` : ''}${followUpStatus.isNextOverdue ? ' (Overdue)' : ''}`
                 : 'Next: None'
             }
           >
-            <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wide shrink-0">Next:</span>
+            <span
+              className={`font-bold text-[10px] uppercase tracking-wide shrink-0 ${
+                followUpStatus.isNextOverdue ? 'text-rose-700 font-extrabold' : 'text-zinc-500'
+              }`}
+            >
+              Next:
+            </span>
             {followUpStatus.nextDate ? (
               <span className="truncate">
-                <span className="font-semibold text-amber-800">{followUpStatus.nextDate}</span>
+                <span
+                  className={`font-semibold ${
+                    followUpStatus.isNextOverdue ? 'text-rose-700 font-bold' : 'text-amber-800'
+                  }`}
+                >
+                  {followUpStatus.nextDate}
+                </span>
                 {followUpStatus.nextDescription && (
-                  <span className="text-zinc-600 font-normal"> - {followUpStatus.nextDescription}</span>
+                  <span
+                    className={`${
+                      followUpStatus.isNextOverdue ? 'text-rose-600' : 'text-zinc-600'
+                    } font-normal`}
+                  >
+                    {' '} - {followUpStatus.nextDescription}
+                  </span>
                 )}
               </span>
             ) : (
