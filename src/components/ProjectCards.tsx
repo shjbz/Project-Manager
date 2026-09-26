@@ -215,10 +215,14 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
         isDueOverdue ? 'bg-rose-50/30' : ''
       }`}
     >
-      {/* Project name & type */}
+      {/* Project name & type with Priority and Status tags on top */}
       <td className="py-3 px-4">
-        <div className="font-semibold text-sm text-zinc-900">{project.project_name}</div>
-        <div className="text-[11px] text-zinc-500 font-normal">
+        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+          <PriorityBadge priority={project.priority} size="sm" />
+          <StatusBadge status={project.status} size="sm" />
+        </div>
+        <div className="font-semibold text-sm text-zinc-900 group-hover:text-zinc-950">{project.project_name}</div>
+        <div className="text-[11px] text-zinc-500 font-normal mt-0.5">
           {project.project_type}
           {project.client?.name && (
             <span className="md:hidden text-zinc-400"> · {project.client.name}</span>
@@ -240,16 +244,6 @@ export const ProjectRow: React.FC<ProjectCardProps> = ({ project, onClick }) => 
           <User className="w-3.5 h-3.5 text-zinc-400" />
           <span>{project.project_lead?.name || '—'}</span>
         </div>
-      </td>
-
-      {/* Priority */}
-      <td className="py-3 px-4 hidden lg:table-cell">
-        <PriorityBadge priority={project.priority} size="sm" />
-      </td>
-
-      {/* Project Status (Manually selected) */}
-      <td className="py-3 px-4">
-        <StatusBadge status={project.status} size="sm" />
       </td>
 
       {/* Situation (Automated Green/Orange/Red Circle Icon) */}
